@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /home/jayce/linux/IMX6ULL/linux-imx-4.1.15-2.1.0-g3dc0a4b-v2.7 -path \"*icm20608*\" -o -path \"*inv_mpu*\" 2>/dev/null | head -20)",
+      "Read(//home/jayce/linux/IMX6ULL/linux-imx-4.1.15-2.1.0-g3dc0a4b-v2.7/**)",
+      "Bash(find /home/jayce/linux/IMX6ULL -path \"*icm20608*\" -o -path \"*icm20*\" 2>/dev/null | head -20)",
+      "Read(//home/jayce/linux/IMX6ULL/**)"
+    ]
+  }
+}

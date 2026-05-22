@@ -1,0 +1,44 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+../ThirdParty/abseil-cpp-20220623.1/absl/base/config.h
+limits.h
+-
+cstddef
+-
+Availability.h
+-
+TargetConditionals.h
+-
+absl/base/options.h
+../ThirdParty/abseil-cpp-20220623.1/absl/base/absl/base/options.h
+absl/base/policy_checks.h
+../ThirdParty/abseil-cpp-20220623.1/absl/base/absl/base/policy_checks.h
+android/ndk-version.h
+-
+
+../ThirdParty/abseil-cpp-20220623.1/absl/base/options.h
+ciso646
+-
+
+../ThirdParty/abseil-cpp-20220623.1/absl/base/policy_checks.h
+limits.h
+-
+cstddef
+-
+
+../ThirdParty/abseil-cpp-20220623.1/absl/random/internal/randen_traits.h
+cstddef
+-
+absl/base/config.h
+../ThirdParty/abseil-cpp-20220623.1/absl/random/internal/absl/base/config.h
+
+/home/why/code/KF-GINS-main/ThirdParty/abseil-cpp-20220623.1/absl/random/internal/randen_round_keys.cc
+absl/random/internal/randen_traits.h
+/home/why/code/KF-GINS-main/ThirdParty/abseil-cpp-20220623.1/absl/random/internal/absl/random/internal/randen_traits.h
+

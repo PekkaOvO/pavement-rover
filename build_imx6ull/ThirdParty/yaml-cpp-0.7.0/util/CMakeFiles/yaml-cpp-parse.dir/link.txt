@@ -1,0 +1,1 @@
+/usr/local/arm/gcc-linaro-4.9.4-2017.01-x86_64_arm-linux-gnueabihf/bin/arm-linux-gnueabihf-g++ -Wno-unused-result "CMakeFiles/yaml-cpp-parse.dir/parse.cpp.o" -o /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/bin/parse  /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libyaml-cpp.a 
