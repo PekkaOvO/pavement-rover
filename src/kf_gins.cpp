@@ -7,7 +7,7 @@
 
 #include "common/angle.h"
 #include "kf-gins/gi_engine.h"
-// #include "realtime/realtime.h"
+#include "realtime/realtime.h"
 
 bool loadConfig(YAML::Node &config, GINSOptions &options);
 void printNavResult(int frame_id, double time, const NavState &navstate,
