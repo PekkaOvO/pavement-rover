@@ -3,3 +3,6 @@ lib/
 build/
 .idea/
 dataset/
+.cache
+.vscode
+.claudebuild_imx6ull/

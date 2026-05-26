@@ -1,4 +1,5 @@
 #include "path_controller.h"
+#include "gps_publisher.h"
 
 #include <algorithm>
 #include <csignal>
@@ -171,6 +172,7 @@ int main(int argc, char **argv) {
                                                 config.control,
                                                 config.gnss_only);
     path_control::Tb6612Driver driver(config.runtime);
+    GpsPublisher gps_pub;
 
     if (!driver.open(error)) {
         std::cerr << error << std::endl;
@@ -224,6 +226,9 @@ int main(int argc, char **argv) {
             driver.close();
             return 1;
         }
+
+        // Publish GPS+state to gd32_bridge via Unix socket
+        gps_pub.publish(fix, state, fix.has_time ? fix.time : 0.0);
 
         if (!origin_announced) {
             const path_control::GeoPoint origin = controller.origin();
