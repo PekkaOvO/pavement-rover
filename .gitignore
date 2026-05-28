@@ -1,4 +1,8 @@
 # Build outputs
+/build/
+/build_imx6ull/
+/bin/
+/lib/
 /gd32_bridge/build/
 /gd32_bridge/build-arm/
 
@@ -9,6 +13,7 @@ cmake_install.cmake
 Makefile
 CTestTestfile.cmake
 DartConfiguration.tcl
+compile_commands.json
 
 # Object files and local binaries
 *.o
