@@ -1,1 +1,0 @@
-/usr/local/bin/arm-linux-gnueabihf-g++  -Wno-unused-result -O3 -DNDEBUG CMakeFiles/gd32_bridge.dir/main.cpp.o CMakeFiles/gd32_bridge.dir/usb_cdc_reader.cpp.o CMakeFiles/gd32_bridge.dir/gps_receiver.cpp.o CMakeFiles/gd32_bridge.dir/tcp_sender.cpp.o -o /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/bin/gd32_bridge  -lpthread

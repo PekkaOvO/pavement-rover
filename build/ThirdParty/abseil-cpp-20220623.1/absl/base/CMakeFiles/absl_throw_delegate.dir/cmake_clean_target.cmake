@@ -1,3 +1,0 @@
-file(REMOVE_RECURSE
-  "/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_throw_delegate.a"
-)

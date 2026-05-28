@@ -1,1 +1,0 @@
-/usr/local/bin/arm-linux-gnueabihf-g++  -Wno-unused-result -g CMakeFiles/tcp_image_test_sender.dir/tcp_image_test_sender.cpp.o CMakeFiles/tcp_image_test_sender.dir/tcp_image_test_packet.cpp.o -o /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/bin/tcp_image_test_sender
