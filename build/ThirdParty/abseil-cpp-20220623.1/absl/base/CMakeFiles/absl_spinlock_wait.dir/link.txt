@@ -1,0 +1,2 @@
+/usr/local/bin/arm-linux-gnueabihf-ar qc /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_spinlock_wait.a CMakeFiles/absl_spinlock_wait.dir/internal/spinlock_wait.cc.o
+/usr/local/bin/arm-linux-gnueabihf-ranlib /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_spinlock_wait.a

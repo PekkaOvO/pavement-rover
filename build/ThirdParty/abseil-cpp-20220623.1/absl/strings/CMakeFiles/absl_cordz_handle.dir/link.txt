@@ -1,0 +1,2 @@
+/usr/local/bin/arm-linux-gnueabihf-ar qc /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_cordz_handle.a CMakeFiles/absl_cordz_handle.dir/internal/cordz_handle.cc.o
+/usr/local/bin/arm-linux-gnueabihf-ranlib /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_cordz_handle.a
