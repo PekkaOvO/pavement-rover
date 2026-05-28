@@ -25,11 +25,11 @@ set(CMAKE_CXX_COMPILER_SYSROOT "/usr/local/arm/gcc-linaro-4.9.4-2017.01-x86_64_a
 set(CMAKE_COMPILER_SYSROOT "/usr/local/arm/gcc-linaro-4.9.4-2017.01-x86_64_arm-linux-gnueabihf/bin/../arm-linux-gnueabihf/libc/usr")
 
 
-set(CMAKE_AR "/usr/bin/arm-linux-gnueabihf-ar")
+set(CMAKE_AR "/usr/local/bin/arm-linux-gnueabihf-ar")
 set(CMAKE_CXX_COMPILER_AR "/usr/local/bin/arm-linux-gnueabihf-gcc-ar")
-set(CMAKE_RANLIB "/usr/bin/arm-linux-gnueabihf-ranlib")
+set(CMAKE_RANLIB "/usr/local/bin/arm-linux-gnueabihf-ranlib")
 set(CMAKE_CXX_COMPILER_RANLIB "/usr/local/bin/arm-linux-gnueabihf-gcc-ranlib")
-set(CMAKE_LINKER "/usr/bin/arm-linux-gnueabihf-ld")
+set(CMAKE_LINKER "/usr/local/bin/arm-linux-gnueabihf-ld")
 set(CMAKE_LINKER_LINK "")
 set(CMAKE_LINKER_LLD "")
 set(CMAKE_CXX_COMPILER_LINKER "/usr/local/arm/gcc-linaro-4.9.4-2017.01-x86_64_arm-linux-gnueabihf/bin/../lib/gcc/arm-linux-gnueabihf/4.9.4/../../../../arm-linux-gnueabihf/bin/ld")

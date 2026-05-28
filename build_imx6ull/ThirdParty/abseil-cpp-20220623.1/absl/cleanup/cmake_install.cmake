@@ -39,6 +39,6 @@ endif()
 
 # Set path to fallback-tool for dependency-resolution.
 if(NOT DEFINED CMAKE_OBJDUMP)
-  set(CMAKE_OBJDUMP "/usr/bin/arm-linux-gnueabihf-objdump")
+  set(CMAKE_OBJDUMP "/usr/local/bin/arm-linux-gnueabihf-objdump")
 endif()
 

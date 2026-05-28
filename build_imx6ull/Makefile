@@ -170,6 +170,32 @@ gd32_bridge/fast:
 .PHONY : gd32_bridge/fast
 
 #=============================================================================
+# Target rules for targets named tcp_image_packet_test
+
+# Build rule for target.
+tcp_image_packet_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tcp_image_packet_test
+.PHONY : tcp_image_packet_test
+
+# fast build rule for target.
+tcp_image_packet_test/fast:
+	$(MAKE) $(MAKESILENT) -f gd32_bridge/CMakeFiles/tcp_image_packet_test.dir/build.make gd32_bridge/CMakeFiles/tcp_image_packet_test.dir/build
+.PHONY : tcp_image_packet_test/fast
+
+#=============================================================================
+# Target rules for targets named tcp_image_test_sender
+
+# Build rule for target.
+tcp_image_test_sender: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tcp_image_test_sender
+.PHONY : tcp_image_test_sender
+
+# fast build rule for target.
+tcp_image_test_sender/fast:
+	$(MAKE) $(MAKESILENT) -f gd32_bridge/CMakeFiles/tcp_image_test_sender.dir/build.make gd32_bridge/CMakeFiles/tcp_image_test_sender.dir/build
+.PHONY : tcp_image_test_sender/fast
+
+#=============================================================================
 # Target rules for targets named Experimental
 
 # Build rule for target.
@@ -1739,6 +1765,8 @@ help:
 	@echo "... absl_time"
 	@echo "... absl_time_zone"
 	@echo "... gd32_bridge"
+	@echo "... tcp_image_packet_test"
+	@echo "... tcp_image_test_sender"
 	@echo "... yaml-cpp"
 	@echo "... src/fileio/fileloader.o"
 	@echo "... src/fileio/fileloader.i"

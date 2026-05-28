@@ -1,2 +1,2 @@
-/usr/bin/arm-linux-gnueabihf-ar qc /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_flags_marshalling.a CMakeFiles/absl_flags_marshalling.dir/marshalling.cc.o
-/usr/bin/arm-linux-gnueabihf-ranlib /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_flags_marshalling.a
+/usr/local/bin/arm-linux-gnueabihf-ar qc /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_flags_marshalling.a CMakeFiles/absl_flags_marshalling.dir/marshalling.cc.o
+/usr/local/bin/arm-linux-gnueabihf-ranlib /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_flags_marshalling.a

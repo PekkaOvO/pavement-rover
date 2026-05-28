@@ -28,7 +28,7 @@ NightlyStartTime: 00:00:00 EDT
 
 # Commands for the build/test/submit cycle
 ConfigureCommand: "/home/jayce/Qt/Tools/CMake/bin/cmake" "/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/ThirdParty/abseil-cpp-20220623.1"
-MakeCommand: /usr/bin/cmake --build . --config "${CTEST_CONFIGURATION_TYPE}"
+MakeCommand: /home/jayce/Qt/Tools/CMake/bin/cmake --build . --config "${CTEST_CONFIGURATION_TYPE}"
 DefaultCTestConfigurationType: Release
 
 # version control

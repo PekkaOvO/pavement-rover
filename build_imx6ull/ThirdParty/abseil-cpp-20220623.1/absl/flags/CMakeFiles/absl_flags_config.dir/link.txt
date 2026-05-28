@@ -1,2 +1,2 @@
-/usr/bin/arm-linux-gnueabihf-ar qc /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_flags_config.a CMakeFiles/absl_flags_config.dir/usage_config.cc.o
-/usr/bin/arm-linux-gnueabihf-ranlib /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_flags_config.a
+/usr/local/bin/arm-linux-gnueabihf-ar qc /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_flags_config.a CMakeFiles/absl_flags_config.dir/usage_config.cc.o
+/usr/local/bin/arm-linux-gnueabihf-ranlib /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_flags_config.a

@@ -1,2 +1,2 @@
-/usr/bin/arm-linux-gnueabihf-ar qc /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_bad_optional_access.a CMakeFiles/absl_bad_optional_access.dir/bad_optional_access.cc.o
-/usr/bin/arm-linux-gnueabihf-ranlib /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_bad_optional_access.a
+/usr/local/bin/arm-linux-gnueabihf-ar qc /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_bad_optional_access.a CMakeFiles/absl_bad_optional_access.dir/bad_optional_access.cc.o
+/usr/local/bin/arm-linux-gnueabihf-ranlib /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_bad_optional_access.a

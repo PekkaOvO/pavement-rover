@@ -1,2 +1,2 @@
-/usr/bin/arm-linux-gnueabihf-ar qc /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_debugging_internal.a CMakeFiles/absl_debugging_internal.dir/internal/address_is_readable.cc.o CMakeFiles/absl_debugging_internal.dir/internal/elf_mem_image.cc.o CMakeFiles/absl_debugging_internal.dir/internal/vdso_support.cc.o
-/usr/bin/arm-linux-gnueabihf-ranlib /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_debugging_internal.a
+/usr/local/bin/arm-linux-gnueabihf-ar qc /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_debugging_internal.a CMakeFiles/absl_debugging_internal.dir/internal/address_is_readable.cc.o CMakeFiles/absl_debugging_internal.dir/internal/elf_mem_image.cc.o CMakeFiles/absl_debugging_internal.dir/internal/vdso_support.cc.o
+/usr/local/bin/arm-linux-gnueabihf-ranlib /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_debugging_internal.a

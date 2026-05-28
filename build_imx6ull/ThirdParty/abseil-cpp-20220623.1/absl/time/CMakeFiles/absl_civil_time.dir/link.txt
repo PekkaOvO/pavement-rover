@@ -1,2 +1,2 @@
-/usr/bin/arm-linux-gnueabihf-ar qc /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_civil_time.a CMakeFiles/absl_civil_time.dir/internal/cctz/src/civil_time_detail.cc.o
-/usr/bin/arm-linux-gnueabihf-ranlib /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_civil_time.a
+/usr/local/bin/arm-linux-gnueabihf-ar qc /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_civil_time.a CMakeFiles/absl_civil_time.dir/internal/cctz/src/civil_time_detail.cc.o
+/usr/local/bin/arm-linux-gnueabihf-ranlib /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_civil_time.a

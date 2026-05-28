@@ -1,0 +1,35 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "imx6ull",
+            "displayName": "IMX6ULL (ARM cross-compile)",
+            "description": "Cross-compile for IMX6ULL using arm-linux-gnueabihf",
+            "binaryDir": "${sourceDir}/build_imx6ull",
+            "cacheVariables": {
+                "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/toolchain-imx6ull.cmake",
+                "ABSL_RANDOM_RANDEN_COPTS": "",
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "native",
+            "displayName": "Native x86 build",
+            "description": "Build natively for the host machine",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "imx6ull",
+            "configurePreset": "imx6ull"
+        },
+        {
+            "name": "native",
+            "configurePreset": "native"
+        }
+    ]
+}

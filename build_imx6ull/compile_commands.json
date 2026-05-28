@@ -90,6 +90,30 @@
   "output": "gd32_bridge/CMakeFiles/gd32_bridge.dir/tcp_sender.cpp.o"
 },
 {
+  "directory": "/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/build_imx6ull/gd32_bridge",
+  "command": "/usr/local/bin/arm-linux-gnueabihf-g++  -I/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/src -I/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/gd32_bridge  -Wno-unused-result -O3 -DNDEBUG -std=gnu++14 -o CMakeFiles/tcp_image_packet_test.dir/tcp_image_packet_test.cpp.o -c /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/gd32_bridge/tcp_image_packet_test.cpp",
+  "file": "/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/gd32_bridge/tcp_image_packet_test.cpp",
+  "output": "gd32_bridge/CMakeFiles/tcp_image_packet_test.dir/tcp_image_packet_test.cpp.o"
+},
+{
+  "directory": "/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/build_imx6ull/gd32_bridge",
+  "command": "/usr/local/bin/arm-linux-gnueabihf-g++  -I/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/src -I/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/gd32_bridge  -Wno-unused-result -O3 -DNDEBUG -std=gnu++14 -o CMakeFiles/tcp_image_packet_test.dir/tcp_image_test_packet.cpp.o -c /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/gd32_bridge/tcp_image_test_packet.cpp",
+  "file": "/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/gd32_bridge/tcp_image_test_packet.cpp",
+  "output": "gd32_bridge/CMakeFiles/tcp_image_packet_test.dir/tcp_image_test_packet.cpp.o"
+},
+{
+  "directory": "/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/build_imx6ull/gd32_bridge",
+  "command": "/usr/local/bin/arm-linux-gnueabihf-g++  -I/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/src -I/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/gd32_bridge  -Wno-unused-result -O3 -DNDEBUG -std=gnu++14 -o CMakeFiles/tcp_image_test_sender.dir/tcp_image_test_sender.cpp.o -c /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/gd32_bridge/tcp_image_test_sender.cpp",
+  "file": "/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/gd32_bridge/tcp_image_test_sender.cpp",
+  "output": "gd32_bridge/CMakeFiles/tcp_image_test_sender.dir/tcp_image_test_sender.cpp.o"
+},
+{
+  "directory": "/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/build_imx6ull/gd32_bridge",
+  "command": "/usr/local/bin/arm-linux-gnueabihf-g++  -I/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/src -I/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/gd32_bridge  -Wno-unused-result -O3 -DNDEBUG -std=gnu++14 -o CMakeFiles/tcp_image_test_sender.dir/tcp_image_test_packet.cpp.o -c /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/gd32_bridge/tcp_image_test_packet.cpp",
+  "file": "/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/gd32_bridge/tcp_image_test_packet.cpp",
+  "output": "gd32_bridge/CMakeFiles/tcp_image_test_sender.dir/tcp_image_test_packet.cpp.o"
+},
+{
   "directory": "/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/build_imx6ull/ThirdParty/yaml-cpp-0.7.0",
   "command": "/usr/local/bin/arm-linux-gnueabihf-g++  -I/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/src -I/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/ThirdParty/eigen-3.3.9 -I/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/ThirdParty/yaml-cpp-0.7.0/include -I/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/ThirdParty/yaml-cpp-0.7.0/src  -Wno-unused-result -O3 -DNDEBUG -std=gnu++14 -Wall -Wextra -Wshadow -Weffc++ -Wno-long-long -pedantic -pedantic-errors -w -o CMakeFiles/yaml-cpp.dir/src/contrib/graphbuilder.cpp.o -c /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/ThirdParty/yaml-cpp-0.7.0/src/contrib/graphbuilder.cpp",
   "file": "/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/ThirdParty/yaml-cpp-0.7.0/src/contrib/graphbuilder.cpp",

@@ -27,6 +27,9 @@ ABSL_GOOGLETEST_DOWNLOAD_URL:STRING=
 // not set, specifies the directory of a local GoogleTest checkout.
 ABSL_LOCAL_GOOGLETEST_DIR:PATH=/usr/src/googletest
 
+//abseil random copts (empty for ARM)
+ABSL_RANDOM_RANDEN_COPTS:STRING=
+
 //If ON, Abseil will assume that the targets for GoogleTest are
 // already provided by the including project. This makes sense
 // when Abseil is used with add_subdirectory.
@@ -44,14 +47,12 @@ CMAKE_ADDR2LINE:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-addr2line
 //Path to a program.
 CMAKE_AR:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-ar
 
-//No help, variable specified on the command line.
+//Choose the type of build, options are: None Debug Release RelWithDebInfo
+// MinSizeRel ...
 CMAKE_BUILD_TYPE:STRING=Debug
 
 //Enable/Disable color output during build.
 CMAKE_COLOR_MAKEFILE:BOOL=ON
-
-//No help, variable specified on the command line.
-CMAKE_CXX_COMPILER:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-g++
 
 //A wrapper around 'ar' adding the appropriate '--plugin' option
 // for the GCC compiler
@@ -75,9 +76,6 @@ CMAKE_CXX_FLAGS_RELEASE:STRING=-O3 -DNDEBUG
 
 //Flags used by the CXX compiler during RELWITHDEBINFO builds.
 CMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING=-O2 -g -DNDEBUG
-
-//No help, variable specified on the command line.
-CMAKE_C_COMPILER:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-gcc
 
 //A wrapper around 'ar' adding the appropriate '--plugin' option
 // for the GCC compiler
@@ -212,9 +210,6 @@ CMAKE_OBJCOPY:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-objcopy
 //Path to a program.
 CMAKE_OBJDUMP:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-objdump
 
-//No help, variable specified on the command line.
-CMAKE_PREFIX_PATH:STRING=/home/jayce/Qt/6.11.0/gcc_64
-
 //Value Computed by CMake
 CMAKE_PROJECT_DESCRIPTION:STATIC=
 
@@ -298,6 +293,9 @@ CMAKE_STRIP:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-strip
 //Path to a program.
 CMAKE_TAPI:FILEPATH=CMAKE_TAPI-NOTFOUND
 
+//The CMake toolchain file
+CMAKE_TOOLCHAIN_FILE:FILEPATH=/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/cmake/toolchain-imx6ull.cmake
+
 //If this value is on, makefiles will be generated without the
 // .SILENT directive, and all commands will be echoed to the console
 // during the make.  This is useful for debugging only. With Visual
@@ -343,9 +341,6 @@ MEMORYCHECK_COMMAND:FILEPATH=MEMORYCHECK_COMMAND-NOTFOUND
 
 //File that contains suppressions for the memory checker
 MEMORYCHECK_SUPPRESSIONS_FILE:FILEPATH=
-
-//No help, variable specified on the command line.
-Qt6_DIR:STRING=/home/jayce/Qt/6.11.0/gcc_64/lib/cmake/Qt6
 
 //Name of the computer/site where compile is being run
 SITE:STRING=LAPTOP-8I3GH4F1
@@ -581,8 +576,6 @@ CMAKE_CPACK_COMMAND:INTERNAL=/home/jayce/Qt/Tools/CMake/bin/cpack
 CMAKE_CTEST_COMMAND-ADVANCED:INTERNAL=1
 //Path to ctest program executable.
 CMAKE_CTEST_COMMAND:INTERNAL=/home/jayce/Qt/Tools/CMake/bin/ctest
-//ADVANCED property for variable: CMAKE_CXX_COMPILER
-CMAKE_CXX_COMPILER-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_CXX_COMPILER_AR
 CMAKE_CXX_COMPILER_AR-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_CXX_COMPILER_RANLIB
@@ -597,8 +590,6 @@ CMAKE_CXX_FLAGS_MINSIZEREL-ADVANCED:INTERNAL=1
 CMAKE_CXX_FLAGS_RELEASE-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_CXX_FLAGS_RELWITHDEBINFO
 CMAKE_CXX_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
-//ADVANCED property for variable: CMAKE_C_COMPILER
-CMAKE_C_COMPILER-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_C_COMPILER_AR
 CMAKE_C_COMPILER_AR-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_C_COMPILER_RANLIB

@@ -42,10 +42,10 @@ ABSL_USE_GOOGLETEST_HEAD:BOOL=OFF
 BUILD_TESTING:BOOL=ON
 
 //Path to a program.
-CMAKE_ADDR2LINE:FILEPATH=/usr/bin/arm-linux-gnueabihf-addr2line
+CMAKE_ADDR2LINE:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-addr2line
 
 //Path to a program.
-CMAKE_AR:FILEPATH=/usr/bin/arm-linux-gnueabihf-ar
+CMAKE_AR:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-ar
 
 //Choose the type of build, options are: None Debug Release RelWithDebInfo
 // MinSizeRel ...
@@ -79,11 +79,11 @@ CMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING=-O2 -g -DNDEBUG
 
 //A wrapper around 'ar' adding the appropriate '--plugin' option
 // for the GCC compiler
-CMAKE_C_COMPILER_AR:FILEPATH=/usr/bin/arm-linux-gnueabihf-gcc-ar
+CMAKE_C_COMPILER_AR:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-gcc-ar
 
 //A wrapper around 'ranlib' adding the appropriate '--plugin' option
 // for the GCC compiler
-CMAKE_C_COMPILER_RANLIB:FILEPATH=/usr/bin/arm-linux-gnueabihf-gcc-ranlib
+CMAKE_C_COMPILER_RANLIB:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-gcc-ranlib
 
 //Flags used by the C compiler during all build types.
 CMAKE_C_FLAGS:STRING=
@@ -176,7 +176,7 @@ CMAKE_INSTALL_SHAREDSTATEDIR:PATH=com
 CMAKE_INSTALL_SYSCONFDIR:PATH=etc
 
 //Path to a program.
-CMAKE_LINKER:FILEPATH=/usr/bin/arm-linux-gnueabihf-ld
+CMAKE_LINKER:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-ld
 
 //Path to a program.
 CMAKE_MAKE_PROGRAM:FILEPATH=/usr/bin/gmake
@@ -202,13 +202,13 @@ CMAKE_MODULE_LINKER_FLAGS_RELEASE:STRING=
 CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO:STRING=
 
 //Path to a program.
-CMAKE_NM:FILEPATH=/usr/bin/arm-linux-gnueabihf-nm
+CMAKE_NM:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-nm
 
 //Path to a program.
-CMAKE_OBJCOPY:FILEPATH=/usr/bin/arm-linux-gnueabihf-objcopy
+CMAKE_OBJCOPY:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-objcopy
 
 //Path to a program.
-CMAKE_OBJDUMP:FILEPATH=/usr/bin/arm-linux-gnueabihf-objdump
+CMAKE_OBJDUMP:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-objdump
 
 //Value Computed by CMake
 CMAKE_PROJECT_DESCRIPTION:STATIC=
@@ -235,10 +235,10 @@ CMAKE_PROJECT_VERSION_PATCH:STATIC=0
 CMAKE_PROJECT_VERSION_TWEAK:STATIC=
 
 //Path to a program.
-CMAKE_RANLIB:FILEPATH=/usr/bin/arm-linux-gnueabihf-ranlib
+CMAKE_RANLIB:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-ranlib
 
 //Path to a program.
-CMAKE_READELF:FILEPATH=/usr/bin/arm-linux-gnueabihf-readelf
+CMAKE_READELF:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-readelf
 
 //Flags used by the linker during the creation of shared libraries
 // during all build types.
@@ -288,13 +288,13 @@ CMAKE_STATIC_LINKER_FLAGS_RELEASE:STRING=
 CMAKE_STATIC_LINKER_FLAGS_RELWITHDEBINFO:STRING=
 
 //Path to a program.
-CMAKE_STRIP:FILEPATH=/usr/bin/arm-linux-gnueabihf-strip
+CMAKE_STRIP:FILEPATH=/usr/local/bin/arm-linux-gnueabihf-strip
 
 //Path to a program.
 CMAKE_TAPI:FILEPATH=CMAKE_TAPI-NOTFOUND
 
-//No help, variable specified on the command line.
-CMAKE_TOOLCHAIN_FILE:UNINITIALIZED=../cmake/toolchain-imx6ull.cmake
+//The CMake toolchain file
+CMAKE_TOOLCHAIN_FILE:FILEPATH=/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/cmake/toolchain-imx6ull.cmake
 
 //If this value is on, makefiles will be generated without the
 // .SILENT directive, and all commands will be echoed to the console
@@ -334,7 +334,7 @@ KF-GINS_SOURCE_DIR:STATIC=/home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main
 LIBRT:FILEPATH=/usr/local/arm/gcc-linaro-4.9.4-2017.01-x86_64_arm-linux-gnueabihf/arm-linux-gnueabihf/libc/usr/lib/librt.so
 
 //Command to build the project
-MAKECOMMAND:STRING=/usr/bin/cmake --build . --config "${CTEST_CONFIGURATION_TYPE}"
+MAKECOMMAND:STRING=/home/jayce/Qt/Tools/CMake/bin/cmake --build . --config "${CTEST_CONFIGURATION_TYPE}"
 
 //Path to the memory checking command, used for memory error detection.
 MEMORYCHECK_COMMAND:FILEPATH=MEMORYCHECK_COMMAND-NOTFOUND
@@ -760,7 +760,7 @@ SITE-ADVANCED:INTERNAL=1
 //Enable yaml-cpp tests
 YAML_CPP_BUILD_TESTS:INTERNAL=OFF
 //linker supports push/pop state
-_CMAKE_LINKER_PUSHPOP_STATE_SUPPORTED:INTERNAL=TRUE
+_CMAKE_LINKER_PUSHPOP_STATE_SUPPORTED:INTERNAL=FALSE
 //CMAKE_INSTALL_PREFIX during last run
 _GNUInstallDirs_LAST_CMAKE_INSTALL_PREFIX:INTERNAL=/usr/local
 

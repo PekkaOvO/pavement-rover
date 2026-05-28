@@ -1,2 +1,2 @@
-/usr/bin/arm-linux-gnueabihf-ar qc /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_strings_internal.a CMakeFiles/absl_strings_internal.dir/internal/ostringstream.cc.o CMakeFiles/absl_strings_internal.dir/internal/utf8.cc.o CMakeFiles/absl_strings_internal.dir/internal/escaping.cc.o
-/usr/bin/arm-linux-gnueabihf-ranlib /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_strings_internal.a
+/usr/local/bin/arm-linux-gnueabihf-ar qc /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_strings_internal.a CMakeFiles/absl_strings_internal.dir/internal/ostringstream.cc.o CMakeFiles/absl_strings_internal.dir/internal/utf8.cc.o CMakeFiles/absl_strings_internal.dir/internal/escaping.cc.o
+/usr/local/bin/arm-linux-gnueabihf-ranlib /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/lib/libabsl_strings_internal.a
