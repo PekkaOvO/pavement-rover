@@ -1,11 +1,6 @@
 # Build outputs
-/build/
-/build_imx6ull/
 /gd32_bridge/build/
 /gd32_bridge/build-arm/
-/bin/
-/lib/
-/compile_commands.json
 
 # CMake generated files
 CMakeCache.txt
@@ -37,6 +32,5 @@ DartConfiguration.tcl
 /.claude/
 
 # Local/generated data
-/dataset/
 /outputs/
 /imagegen_prompts/

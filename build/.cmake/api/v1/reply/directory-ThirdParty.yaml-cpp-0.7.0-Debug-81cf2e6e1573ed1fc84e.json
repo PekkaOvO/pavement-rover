@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "ThirdParty/yaml-cpp-0.7.0",
+		"source" : "ThirdParty/yaml-cpp-0.7.0"
+	}
+}

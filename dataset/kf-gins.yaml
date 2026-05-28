@@ -1,0 +1,62 @@
+# KF-GINS realtime configuration file
+
+imu_dev: "/dev/icm20608"
+gnss_dev: "/dev/ttyUSB0"
+gnss_baud: 115200
+imu_poll_us: 1000
+output_decimation: 40
+gnss_std: [2.0, 2.0, 3.0]
+
+# 初始状态,需要重新确定
+initpos: [38.8685593, 121.522937, 16]
+initvel: [0.0, 0.0, 0.0]
+initatt: [0.0, 0.0, 71]
+
+
+# 初始IMU零偏和比例因子
+initgyrbias: [-2545, 460, 1493]
+initaccbias: [5561, 16257, 3906]
+initgyrscale: [0, 0, 0]
+initaccscale: [0, 0, 0]
+
+# 初始状态标准差
+initposstd: [0.1, 0.1, 0.1]
+initvelstd: [0.1, 0.1, 0.1]
+initattstd: [1.0, 1.0, 1.0]
+
+imunoise:
+  arw:   [0.48, 0.48, 0.48]
+  vrw:   [0.147, 0.147, 0.147]
+  gbstd: [108, 65, 113]
+  abstd: [645, 847, 667]
+  gsstd: [2000.0, 2000.0, 2000.0]
+  asstd: [2000.0, 2000.0, 2000.0]
+  corrtime: 1.0
+
+# 天线杆臂，前右下
+antlever: [-0.5,2.5,-0.5]
+
+# Path-control module configuration
+# goal: [latitude_deg, longitude_deg]
+path_control:
+  goal: [38.868621, 121.523166]     # 目标点经纬度
+  device: "/dev/tb6612"                         
+  dry_run: false                      #false：真实控制电机 true：只打印 driver_cmd: set ...，适合调试
+  print_every: 1                      #每次控制都打印路径控制状态
+  max_command_percent: 25             #PWM 输出最大限幅。即使算法算出 80%，也会限制到 40%
+  left_scale: 1.0                     #左右轮输出比例修正
+  right_scale: 0.85                   #左右轮输出比例修正
+  swap_ab: true                       #是否交换 A/B 电机输出。
+  invert_left: false                  #是否反转左轮方向。
+  invert_right: false                 #是否反转右轮方向。
+
+  control:
+    target_speed_mps: 0.15        # 目标前进速度，单位 m/s
+    min_speed_mps: 0.15           # 靠近目标点减速时的最低速度。避免速度太小电机不动。
+    lookahead_base_m: 0.60        # 纯追踪算法的基础前视距离。小车不会直接盯当前位置最近点，而是看前方约 0.6 m 的路径点。
+    lookahead_gain: 0.0          # 速度越快，前视距离越大：
+    track_width_m: 0.26           # 左右轮中心距，单位 m。差速模型用它把角速度换算成左右轮速度。
+    max_wheel_speed_mps: 0.80     # 轮子速度映射到 100% PWM 的参考速度。
+    goal_tolerance_m: 0.25        # 到达目标判定半径。距离目标小于 0.25 m 就认为到达，并发送 stop。
+    slow_radius_m: 1.20           # 减速半径。距离目标小于 1.2 m 开始逐渐降低速度。
+    path_step_m: 0.20             # 生成直线路径点的间隔。当前算法会从起点到目标生成一条直线，路径点间距约 0.2 m。
