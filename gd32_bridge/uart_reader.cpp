@@ -1,5 +1,6 @@
 #include "uart_reader.h"
 
+#include <chrono>
 #include <cstring>
 #include <cerrno>
 #include <iostream>

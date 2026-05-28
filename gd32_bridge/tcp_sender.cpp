@@ -59,11 +59,45 @@ void TcpSender::packFrame(const std::vector<uint8_t> &gd32_frame,
     uint8_t type = TcpProtocol::TYPE_NO_IMAGE;
     const uint8_t *image_data = nullptr;
     uint32_t image_len = 0;
+    const uint8_t *detection_data = nullptr;
+    uint32_t detection_len = 0;
     float cam_angle = 0.0f;
 
+    if (gd32_frame.empty())
+        goto build;
+
+    // Check for raw RGB565 frame (from USB CDC path)
+    if (gd32_frame[0] == QUEUE_FRAME_RGB565 && gd32_frame.size() >= 9) {
+        // Frame format: [TYPE(1)][FRAME_ID(4)][WIDTH(2)][HEIGHT(2)][RGB565_DATA]
+        uint16_t width  = (uint16_t)gd32_frame[5] | ((uint16_t)gd32_frame[6] << 8);
+        uint16_t height = (uint16_t)gd32_frame[7] | ((uint16_t)gd32_frame[8] << 8);
+        image_len = (uint32_t)width * height * 2;
+
+        if (gd32_frame.size() >= 9 + image_len) {
+            type = TcpProtocol::TYPE_RGB565;
+            image_data = gd32_frame.data() + 9;
+        }
+        goto build;
+    }
+
+    if (gd32_frame[0] == QUEUE_FRAME_RGB565_DET && gd32_frame.size() >= 9 + sizeof(CdcDetObjectV2)) {
+        uint16_t width  = (uint16_t)gd32_frame[5] | ((uint16_t)gd32_frame[6] << 8);
+        uint16_t height = (uint16_t)gd32_frame[7] | ((uint16_t)gd32_frame[8] << 8);
+        image_len = (uint32_t)width * height * 2;
+
+        if (gd32_frame.size() >= 9 + sizeof(CdcDetObjectV2) + image_len) {
+            type = TcpProtocol::TYPE_RGB565_ANOMALY;
+            detection_data = gd32_frame.data() + 9;
+            detection_len = sizeof(CdcDetObjectV2);
+            image_data = gd32_frame.data() + 9 + sizeof(CdcDetObjectV2);
+        }
+        goto build;
+    }
+
+    // Gd32Frame format (from USB-TTL UART path)
     if (gd32_frame.size() >= Gd32Frame::HEADER_SIZE + 2) {
         uint8_t frame_type = gd32_frame[2]; // TYPE byte
-        // Payload length
+        // Payload length (big-endian)
         uint32_t payload_len = ((uint32_t)gd32_frame[3] << 24)
                              | ((uint32_t)gd32_frame[4] << 16)
                              | ((uint32_t)gd32_frame[5] << 8)
@@ -83,8 +117,10 @@ void TcpSender::packFrame(const std::vector<uint8_t> &gd32_frame,
         }
     }
 
+build:
+
     // Build TCP packet: header + [image] + crc16
-    pkt.resize(TcpProtocol::HEADER_SIZE + image_len + TcpProtocol::CRC_SIZE);
+    pkt.resize(TcpProtocol::HEADER_SIZE + detection_len + image_len + TcpProtocol::CRC_SIZE);
     uint8_t *hdr = pkt.data();
 
     // MAGIC
@@ -150,14 +186,20 @@ void TcpSender::packFrame(const std::vector<uint8_t> &gd32_frame,
     hdr[TcpProtocol::IMAGE_LEN_OFF + 2] = (uint8_t)(image_len >> 8);
     hdr[TcpProtocol::IMAGE_LEN_OFF + 3] = (uint8_t)(image_len);
 
+    uint8_t *payload = hdr + TcpProtocol::HEADER_SIZE;
+    if (detection_len > 0 && detection_data) {
+        memcpy(payload, detection_data, detection_len);
+        payload += detection_len;
+    }
+
     // Image data (if any)
     if (image_len > 0 && image_data) {
-        memcpy(hdr + TcpProtocol::HEADER_SIZE, image_data, image_len);
+        memcpy(payload, image_data, image_len);
     }
 
     // CRC16 (covers VERSION byte through image data)
     uint16_t crc = crc16Ccitt(hdr + TcpProtocol::VERSION_OFF,
-                              TcpProtocol::HEADER_SIZE - TcpProtocol::VERSION_OFF + image_len);
+                              TcpProtocol::HEADER_SIZE - TcpProtocol::VERSION_OFF + detection_len + image_len);
     pkt[pkt.size() - 2] = (uint8_t)(crc >> 8);
     pkt[pkt.size() - 1] = (uint8_t)(crc);
 }

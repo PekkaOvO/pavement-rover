@@ -1,8 +1,42 @@
-bin/
-lib/
-build/
-.idea/
-dataset/
-.cache
-.vscode
-.claudebuild_imx6ull/
+# Build outputs
+/build/
+/build_imx6ull/
+/gd32_bridge/build/
+/gd32_bridge/build-arm/
+/bin/
+/lib/
+/compile_commands.json
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+CTestTestfile.cmake
+DartConfiguration.tcl
+
+# Object files and local binaries
+*.o
+*.o.d
+*.a
+*.so
+*.bin
+*.elf
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# Editor/cache/tool state
+/.cache/
+/.codegraph/
+/.idea/
+/.vscode/
+/.claude/
+
+# Local/generated data
+/dataset/
+/outputs/
+/imagegen_prompts/

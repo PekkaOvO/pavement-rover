@@ -82,28 +82,21 @@ make -j$(nproc)
 
 ### 2.3 交叉编译 ARM 程序（开发板部署）
 
-**编译 gd32_bridge：**
+> ARM 编译需要两个输出目录，不要混淆：
+> - `build/` — x86 原生编译（PC 上跑离线处理）
+> - `build_imx6ull/` — ARM 交叉编译（开发板上跑）
 
 ```bash
 cd /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main
-mkdir -p build-arm && cd build-arm
+mkdir -p build_imx6ull && cd build_imx6ull
+
 cmake ../ -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_TOOLCHAIN_FILE=../cmake/arm-toolchain.cmake
-make -j$(nproc) gd32_bridge
+make -j$(nproc)
 
-# 产物：bin/gd32_bridge (ARM架构)
-```
-
-**编译 KF-GINS-GnssPathControl（含GPS发布功能）：**
-
-```bash
-# 同样在 build-arm 目录下
-cd /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/build-arm
-cmake ../ -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_TOOLCHAIN_FILE=../cmake/arm-toolchain.cmake
-make -j$(nproc) KF-GINS-GnssPathControl
-
-# 产物：bin/KF-GINS-GnssPathControl (ARM架构)
+# 产物在 bin/ 目录：
+#   gd32_bridge                - GD32桥接守护进程 (ARM)
+#   KF-GINS-GnssPathControl    - GNSS-only路径规划 (ARM)
 ```
 
 ### 2.4 编译内核模块 gd32_comm（可选）
@@ -122,12 +115,144 @@ make
 将交叉编译得到的文件拷贝到 i.MX6ULL 开发板：
 
 ```bash
-# 假设开发板IP为 192.168.1.10
-scp bin/gd32_bridge root@192.168.1.10:/usr/local/bin/
-scp bin/KF-GINS-GnssPathControl root@192.168.1.10:/usr/local/bin/
-scp ../Drivers/Linux_Drivers/gd32_comm/gd32_comm.ko root@192.168.1.10:/root/
-scp ../dataset/*.yaml root@192.168.1.10:/root/  # 配置文件
+# 假设开发板IP为 172.20.10.12，在工作目录 KF-GINS-main 下执行
+scp bin/gd32_bridge bin/KF-GINS-GnssPathControl start_vehicle.sh \
+    ../Drivers/Linux_Drivers/gd32_comm/gd32_comm.ko \
+    ../dataset/*.yaml \
+    root@172.20.10.12:/home/root/
+
+# 开发板上设置脚本可执行
+ssh root@172.20.10.12 "chmod +x /home/root/start_vehicle.sh"
 ```
+
+### 3.1 当前图像桥接调试用命令（固定 IP）
+
+当前调试环境：
+
+- 上位机/Windows IP：`172.20.10.3`
+- i.MX6ULL 开发板 IP：`172.20.10.12`
+- 开发板部署目录：`/home/root/`
+- CarView2 TCP 端口：`8766`
+
+#### 3.1.1 编译 CarView2（WSL/PC 上执行）
+
+```bash
+cd /home/jayce/QtProjects/CarView2
+cmake --build build --target TcpReceiverTest CarView2 -j2
+ctest --test-dir build --output-on-failure -R TcpReceiverTest
+```
+
+运行 CarView2：
+
+```bash
+cd /home/jayce/QtProjects/CarView2
+./build/CarView2
+```
+
+#### 3.1.2 编译开发板程序（WSL/PC 上执行）
+
+`gd32_bridge` 目录内有两个常用程序：
+
+- `gd32_bridge`：真实桥接程序，读取 GD32 USB CDC 图像和 DET_V2 检测标签，再通过 TCP 发给 CarView2。
+- `tcp_image_test_sender`：测试发送器，不依赖 GD32，可直接发送普通/异常/混合图像给 CarView2。
+
+```bash
+cd /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/gd32_bridge
+
+cmake -S . -B build-arm \
+  -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++ \
+  -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc
+
+cmake --build build-arm --target gd32_bridge tcp_image_test_sender -j2
+```
+
+确认编译产物是 ARM 程序：
+
+```bash
+file build-arm/gd32_bridge build-arm/tcp_image_test_sender
+```
+
+期望看到 `ELF 32-bit LSB executable, ARM, EABI5`。
+
+#### 3.1.3 拷贝到开发板（WSL/PC 上执行）
+
+```bash
+cd /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main/gd32_bridge
+
+scp build-arm/gd32_bridge build-arm/tcp_image_test_sender \
+  root@172.20.10.12:/home/root/
+
+ssh root@172.20.10.12 \
+  "chmod +x /home/root/gd32_bridge /home/root/tcp_image_test_sender && ls -l /home/root/gd32_bridge /home/root/tcp_image_test_sender"
+```
+
+#### 3.1.4 运行测试发送器（开发板上执行）
+
+先启动新版 CarView2，再在开发板运行：
+
+```bash
+cd /home/root
+./tcp_image_test_sender 172.20.10.3 8766 30 200 mixed
+```
+
+参数含义：
+
+- `172.20.10.3`：上位机/Windows IP。
+- `8766`：CarView2 TCP 接收端口。
+- `30`：发送 30 帧。
+- `200`：每 200 ms 发送一帧。
+- `mixed`：普通图和异常图混合发送。
+
+测试模式：
+
+```bash
+# 只发普通图：只应出现在图像预览
+./tcp_image_test_sender 172.20.10.3 8766 30 200 normal
+
+# 全部发异常图：应出现在图像预览，并进入异常抓拍和异常列表
+./tcp_image_test_sender 172.20.10.3 8766 20 200 anomaly
+
+# 普通/异常混合：所有图进预览，异常图额外进异常抓拍和异常列表
+./tcp_image_test_sender 172.20.10.3 8766 30 200 mixed
+```
+
+发送端日志示例：
+
+```text
+sent frame seq=0 type=anomaly bytes=131154
+sent frame seq=1 type=normal bytes=131126
+sent frame seq=2 type=normal bytes=131126
+sent frame seq=3 type=anomaly bytes=131154
+```
+
+#### 3.1.5 运行真实桥接程序（开发板上执行）
+
+确认 GD32 通过 USB CDC 接到开发板，设备通常为 `/dev/ttyACM0`。先启动新版 CarView2，再运行：
+
+```bash
+cd /home/root
+./gd32_bridge 172.20.10.3 8766
+```
+
+期望日志：
+
+```text
+gd32_bridge starting:
+  server:  172.20.10.3:8766
+  cdc:     /dev/ttyACM0 (USB CDC ACM)
+  gps:     /tmp/gd32_gps.sock
+usb_cdc: opened /dev/ttyACM0
+tcp_sender: connected
+stats: frames=...
+```
+
+真实桥接逻辑：
+
+- GD32 发送 `type=0x01 format=0x01` 的 RGB565 图像包。
+- GD32 发送 `type=0x02 format=0x02` 的 DET_V2 检测包。
+- `gd32_bridge` 按 `frame_id` 合并图像和检测结果。
+- 无 DET_V2 目标：CarView2 只更新图像预览。
+- 有 DET_V2 目标：CarView2 更新图像预览，同时生成异常记录，进入异常抓拍和异常信息列表。
 
 ---
 
@@ -198,9 +323,44 @@ cat /dev/ttyUSB0 | ./KF-GINS-GnssPathControl ./config.yaml --dry-run
 ### 场景E：GD32图像桥接（完整系统）
 
 **前提：**
-- GD32 开发板通过 USB-TTL 连接到 i.MX6ULL 开发板
+- GD32 开发板通过 USB-TTL 连接到 i.MX6ULL 开发板（`/dev/ttyUSB0`）
 - GD32 以 921600 bps 发送 JPEG 图片和摄像机角度
-- USB-GPS 连接到开发板提供定位数据
+- USB-GPS 连接到开发板（通常是 `/dev/ttyUSB1`）
+- 电机驱动板（TB6612）连接到开发板
+- 网络已连接（开发板和 PC 在同一局域网）
+
+一键启动：
+
+```bash
+# === PC端：一条命令启动上位机 ===
+cd /home/jayce/QtProjects/CarView2/build
+./CarView2
+```
+
+```bash
+# === 开发板端：一条命令启动全部 ===
+# 复制到开发板后执行:
+chmod +x start_vehicle.sh
+./start_vehicle.sh 192.168.1.100 /dev/ttyUSB1 ./config.yaml
+# 参数: ./start_vehicle.sh <上位机IP> [GPS设备] [配置文件]
+# 默认:                     192.168.1.100  /dev/ttyUSB1 ./config.yaml
+```
+
+`start_vehicle.sh` 脚本会自动按顺序完成以下工作：
+1. 启动 `gd32_bridge` → 连接 CarView2、等待 USB-TTL 和 GPS 数据
+2. 等待 GPS 设备就绪 → 启动 `KF-GINS-GnssPathControl` 并自动推送位置到 bridge
+3. GPS 断开或程序退出后自动清理后台进程
+
+**接线说明：**
+
+| 设备 | 开发板接口 | 设备节点 |
+|------|-----------|---------|
+| GD32 | USB-TTL (CH340) | `/dev/ttyUSB0` |
+| USB-GPS | USB 口 | `/dev/ttyUSB1` |
+| 电机驱动 | GPIO (参考 tb6612 驱动) | `/dev/tb6612` |
+| 网络 | 以太网或 WiFi | — |
+
+**详细启动步骤（如果一键脚本有问题，按以下分步执行）：**
 
 **步骤1：在 PC 上启动 CarView2 上位机**
 
@@ -247,7 +407,17 @@ cat /dev/ttyUSB0 | /usr/local/bin/KF-GINS-GnssPathControl ./config.yaml
 
 将 GD32 的 USB-TTL 插入 Linux 开发板的 USB 口，设备节点 `/dev/ttyUSB0` 出现后，gd32_bridge 会自动检测并打开。
 
-**完整启动顺序：**
+**完整启动顺序（一键版）：**
+
+```bash
+# === PC端 ===
+./CarView2
+
+# === 开发板端（一条命令） ===
+./start_vehicle.sh 192.168.1.100
+```
+
+**完整启动顺序（分步版）：**
 
 ```bash
 # === 在 PC 上 ===
@@ -255,8 +425,8 @@ cat /dev/ttyUSB0 | /usr/local/bin/KF-GINS-GnssPathControl ./config.yaml
 ./CarView2
 
 # === 在开发板上 ===
-# 终端 1: 启动桥接守护进程
-gd32_bridge 192.168.1.100 8766
+# 终端 1: 启动桥接守护进程（后台运行）
+gd32_bridge 192.168.1.100 8766 &
 
 # 终端 2: 启动 GPS 路径规划
 cat /dev/ttyGPS | KF-GINS-GnssPathControl ./config.yaml
@@ -316,7 +486,9 @@ gd32_bridge TCP发送线程 ← 读取Queue + GPS状态
 |------|------|------|----------|
 | KF-GINS (x86) | `KF-GINS-main/` | `cmake .. && make -j$(nproc)` | PC |
 | KF-GINS-PathControl (x86) | `KF-GINS-main/` | 同上（一起编译） | PC |
-| KF-GINS-GnssPathControl (ARM) | `KF-GINS-main/build-arm/` | `cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/arm-toolchain.cmake && make -j$(nproc) KF-GINS-GnssPathControl` | 开发板 |
-| gd32_bridge (ARM) | `KF-GINS-main/build-arm/` | `cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/arm-toolchain.cmake && make -j$(nproc) gd32_bridge` | 开发板 |
+| KF-GINS-GnssPathControl (ARM) | `KF-GINS-main/build_imx6ull/` | `cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/arm-toolchain.cmake && make -j$(nproc) KF-GINS-GnssPathControl` | 开发板 |
+| gd32_bridge (ARM) | `KF-GINS-main/build_imx6ull/` | `cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/arm-toolchain.cmake && make -j$(nproc) gd32_bridge` | 开发板 |
+| gd32_bridge standalone (ARM) | `KF-GINS-main/gd32_bridge/` | `cmake -S . -B build-arm -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++ && cmake --build build-arm --target gd32_bridge -j2` | 开发板 |
+| tcp_image_test_sender (ARM) | `KF-GINS-main/gd32_bridge/` | `cmake -S . -B build-arm -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++ && cmake --build build-arm --target tcp_image_test_sender -j2` | 开发板 |
 | gd32_comm.ko | `Drivers/Linux_Drivers/gd32_comm/` | `make` | 开发板 |
 | CarView2 | `QtProjects/CarView2/` | `cmake .. && make -j$(nproc)` | PC |

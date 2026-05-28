@@ -1,11 +1,12 @@
 #include <csignal>
 #include <atomic>
+#include <chrono>
 #include <iostream>
 #include <thread>
 
 #include "protocol.h"
 #include "frame_queue.h"
-#include "uart_reader.h"
+#include "usb_cdc_reader.h"
 #include "gps_receiver.h"
 #include "tcp_sender.h"
 
@@ -22,7 +23,7 @@ void printUsage(const char *prog) {
               << " <server_host> [server_port]\n"
               << "  server_host: CarView2 IP address\n"
               << "  server_port: CarView2 TCP port (default 8766)\n"
-              << "  UART device: /dev/ttyUSB0 (fixed)\n"
+              << "  CDC device:  /dev/ttyACM0 (fixed)\n"
               << "  GPS socket:  /tmp/gd32_gps.sock (fixed)\n";
 }
 
@@ -43,12 +44,12 @@ int main(int argc, char **argv) {
         port = (uint16_t)std::max(1, std::atoi(argv[2]));
 
     std::cerr << "gd32_bridge starting:\n"
-              << "  server: " << host << ":" << port << "\n"
-              << "  uart:   /dev/ttyUSB0 @ 921600\n"
-              << "  gps:    /tmp/gd32_gps.sock\n";
+              << "  server:  " << host << ":" << port << "\n"
+              << "  cdc:     /dev/ttyACM0 (USB CDC ACM)\n"
+              << "  gps:     /tmp/gd32_gps.sock\n";
 
     gd32_bridge::FrameQueue queue(32);
-    gd32_bridge::UartReader uart(queue, "/dev/ttyUSB0");
+    gd32_bridge::UsbCdcReader cdc(queue, "/dev/ttyACM0");
     gd32_bridge::GpsReceiver gps;
     gd32_bridge::TcpSender tcp(queue, gps, host, port);
 
@@ -57,15 +58,15 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    if (!uart.start()) {
-        std::cerr << "Failed to start UART reader" << std::endl;
+    if (!cdc.start()) {
+        std::cerr << "Failed to start USB CDC reader" << std::endl;
         gps.stop();
         return 1;
     }
 
     if (!tcp.start()) {
         std::cerr << "Failed to start TCP sender" << std::endl;
-        uart.stop();
+        cdc.stop();
         gps.stop();
         return 1;
     }
@@ -73,16 +74,16 @@ int main(int argc, char **argv) {
     // Main thread: print stats periodically until stop
     while (!g_stop) {
         std::this_thread::sleep_for(std::chrono::seconds(5));
-        std::cerr << "stats: packets=" << uart.packets_received.load()
-                  << " crc_err=" << uart.crc_errors.load()
-                  << " dropped=" << uart.frames_dropped.load()
+        std::cerr << "stats: frames=" << cdc.frames_received.load()
+                  << " dropped=" << cdc.frames_dropped.load()
+                  << " reass_err=" << cdc.reassembly_errors.load()
                   << " queued=" << queue.size()
                   << std::endl;
     }
 
     std::cerr << "Shutting down..." << std::endl;
     tcp.stop();
-    uart.stop();
+    cdc.stop();
     gps.stop();
     std::cerr << "gd32_bridge stopped" << std::endl;
     return 0;
