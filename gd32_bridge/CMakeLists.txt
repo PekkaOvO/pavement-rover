@@ -14,6 +14,7 @@ add_executable(gd32_bridge
     usb_cdc_reader.cpp
     gps_receiver.cpp
     tcp_sender.cpp
+    vehicle_cmd_publisher.cpp
 )
 
 add_executable(tcp_image_packet_test

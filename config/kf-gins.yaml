@@ -103,7 +103,7 @@ path_control:
     min_speed_mps: 0.12
     lookahead_base_m: 0.60
     lookahead_gain: 0.60
-    track_width_m: 0.26
+    track_width_m: 0.16
     max_wheel_speed_mps: 0.80
     goal_tolerance_m: 0.25
     slow_radius_m: 1.20

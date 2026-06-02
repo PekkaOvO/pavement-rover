@@ -4,16 +4,18 @@
 
 ```
                           开发板 (i.MX6ULL)
-                        ┌──────────────────────────────┐
-GD32 ──USB-TTL@921600──►│ gd32_bridge                  │──TCP:8766──► CarView2 (PC)
-                        │  ├─ UART读取线程              │              ├─ 地图显示
-GNSS (USB GPS) ────────►│  ├─ GPS接收线程 (Unix socket) │              ├─ 图像预览
-          │             │  └─ TCP发送线程               │              ├─ CSV滚动记录
-          ▼             │                              │              └─ 图片缓冲
- gnss_path_control      └──────────────────────────────┘
-       │                          ▲
-       └── Unix socket ───────────┘
-       (gps_publisher)
+                        ┌──────────────────────────────────┐
+GD32 ───USB CDC (ACM)──►│ gd32_bridge                      │──TCP:8766──► CarView2
+                        │  ├─ USB CDC读取+事件处理          │
+GNSS ──stdin──────────► │  ├─ GPS接收 (Unix socket)        │
+          │             │  └─ 车辆命令发布 (Unix DGRAM)     │
+          ▼             └──────────┬───────────┬───────────┘
+ gnss_path_control                 │           ▲
+   ├─ GPS发布 ────Unix socket──────┘           │
+   ├─ 命令接收 ◄───/tmp/gd32_vehicle_cmd.sock──┘
+   ├─ 裂缝停车状态机
+   ├─ 原地旋转 (差速轮+舵机, t=θ/(P×K))
+   └─ TB6612电机驱动 (/dev/tb6612)
 ```
 
 ## 一、编译环境准备
@@ -320,7 +322,62 @@ cat /dev/ttyUSB0 | ./KF-GINS-GnssPathControl ./config.yaml --dry-run
 - `--print-every N`：每N个样本打印一次状态
 - `--max-speed X`：最大速度限制 (m/s)
 
-### 场景E：GD32图像桥接（完整系统）
+### 场景F：裂缝处理全流程测试（test_control）
+
+用模拟数据测试"正常行驶 → STOP → 原地旋转 → RESUME"完整流程：
+
+```bash
+# 在开发板上运行
+# 终端 1: 启动 CarView2 (PC上)
+
+# 终端 2: 编译 test_control (ARM)
+cd /home/jayce/linux/IMX6ULL/C_APP/pwm/KF-GINS-main
+cmake --build build_imx6ull --target KF-GINS-TestControl -j2
+
+# 终端 2: 运行测试（管道到 gnss_path_control）
+sudo ./bin/KF-GINS-TestControl <start_lat> <start_lon> 0.5 \
+  | sudo ./bin/KF-GINS-GnssPathControl ./config.yaml
+
+# 示例（lat=30.0, lon=120.0, 向北0.5m/步 @ 5Hz）
+sudo ./bin/KF-GINS-TestControl 30.0 120.0 0.5 \
+  | sudo ./bin/KF-GINS-GnssPathControl ./config.yaml
+```
+
+**测试流程：**
+
+```text
+终端输出（test_control 侧）:
+  === Test Control for GNSS Path Control ===
+
+  1. 小车自动开始向前行驶 (GPS 数据持续输出)
+
+  2. 输入: stop
+     → 发送 CMD_STOP → 小车刹车停止
+     → GPS 继续输出（CarView2 地图保持更新）
+
+  3. 输入: adjust 90
+     → 发送 CMD_ADJUST angle=90°
+     → 小车原地旋转 90° (servo 0°, set(-30%,+30%), sleep(t), stop)
+
+  4. 输入: resume
+     → 发送 CMD_RESUME → 小车恢复路径跟踪
+
+  5. 输入: quit → 退出
+```
+
+**支持的交互命令：**
+
+| 命令 | 作用 |
+|------|------|
+| `stop` | 发送停车命令 |
+| `adjust <deg>` | 发送原地旋转命令（角度正=右转，负=左转） |
+| `resume` | 发送恢复行驶命令 |
+| `origin <lat> <lon>` | 重置 GPS 模拟位置 |
+| `heading <deg>` | 设置 GPS 行进方向（0=北，90=东） |
+| `speed <m/s>` | 设置每步行进距离 |
+| `pause / cont` | 暂停/继续 GPS 输出 |
+| `status` | 显示当前状态 |
+| `quit` | 退出 |
 
 **前提：**
 - GD32 开发板通过 USB-TTL 连接到 i.MX6ULL 开发板（`/dev/ttyUSB0`）
@@ -436,30 +493,63 @@ cat /dev/ttyGPS | KF-GINS-GnssPathControl ./config.yaml
 
 ## 五、数据流说明
 
+### 5.1 图像+检测数据流
+
 ```
-GD32拍摄图片 ──► USB-TTL(921600) ──► gd32_bridge UART线程
-                                          │
-                                    帧同步+CRC校验
-                                          │
-                                    压入 FrameQueue
-                                          │
-GPS 定位数据 ──► gnss_path_control ──► Unix socket ──► gd32_bridge GPS线程
-                                          │
-                                    原子变量缓存最新状态
-                                          │
-gd32_bridge TCP发送线程 ← 读取Queue + GPS状态
-          │
-    打包二进制TCP协议:
-    | MAGIC | VERSION | TYPE | SEQ | TS_MS |
-    | LAT | LON | COURSE | SPEED | HEIGHT |
-    | CAM_ANGLE | IMAGE_LEN | [JPEG] | CRC16 |
-          │
-          ▼
-    CarView2 (端口8766)
-     ├─ 地图更新位置
-     ├─ 图像预览Dock显示图片
-     ├─ CSV文件滚动存储
-     └─ images/目录缓冲最近20张
+GD32 ──USB CDC──► gd32_bridge
+  │
+  ├─ type=0x01 (图像分片)
+  │   16B header + RGB565 chunk data
+  │   按 packet_id/packet_total 重组完整图像
+  │
+  ├─ type=0x02 (检测结果+事件)
+  │   16B header + 28B UsbDetObject
+  │   event=STOP(0x01)    → 检测到裂缝，发布停车命令
+  │   event=X_DELTA(0x02) → 云台角度偏差，发布调整命令
+  │   event=NONE(0x00)    → 无裂缝，清除异常状态
+  │   event=FLOW_END(0x03)→ 裂缝处理完成，发布恢复命令
+  │
+  ↓ 帧队列 (FrameQueue)
+  │
+gd32_bridge TCP发送线程 ──► CarView2 (TCP:8766)
+  ├─ 地图更新 (GPS位置)
+  ├─ 图像预览 (RGB565)
+  ├─ 异常抓拍记录
+  └─ CSV滚动存储
+```
+
+### 5.2 车辆控制命令流
+
+```
+gd32_bridge (检测到裂缝事件)
+       │
+       │ VehicleCmdPublisher
+       │ Unix DGRAM socket: /tmp/gd32_vehicle_cmd.sock
+       │ 消息: { cmd(1B), angle_delta_deg(4B), timestamp_ms(4B) }
+       ▼
+gnss_path_control
+  ├─ 收到 STOP  → driver.stop()，保持刹车，继续发布GPS
+  ├─ 收到 ADJUST → doInPlaceRotation(driver, angle)
+  │                  公式: t = |θ| / (P × K)
+  │                  流程: servo 0° → set(-P, +P) → sleep(t) → stop
+  └─ 收到 RESUME → 恢复路径跟踪
+       │
+       │ driver.set(left%, right%) 或 driver.stop()
+       ▼
+  TB6612电机驱动 (/dev/tb6612)
+```
+
+### 5.3 GPS数据流
+
+```
+USB-GPS (NMEA) ──stdin──► gnss_path_control
+                                │
+                           解析经纬度/航向/速度
+                                │
+                           路径跟踪 (pure pursuit)
+                                │
+                           ├─ 控制电机 (TB6612)
+                           └─ 发布GPS → Unix socket → gd32_bridge → TCP → CarView2
 ```
 
 ### 时间同步机制

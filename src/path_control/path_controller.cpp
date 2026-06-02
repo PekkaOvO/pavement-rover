@@ -714,7 +714,7 @@ bool loadPathControlConfig(const std::string &yaml_path, PathControlConfig &conf
         config.control.lookahead_base_m = 0.60;
     }
     if (config.control.track_width_m <= 0.0) {
-        config.control.track_width_m = 0.26;
+        config.control.track_width_m = 0.16;
     }
     if (config.control.max_wheel_speed_mps <= 0.0) {
         config.control.max_wheel_speed_mps = 0.80;
@@ -972,6 +972,15 @@ bool Tb6612Driver::set(int left_percent, int right_percent, std::string &error) 
 
     char command[64];
     std::snprintf(command, sizeof(command), "set %d %d\n", motor_a, motor_b);
+    return writeCommand(command, error);
+}
+
+bool Tb6612Driver::servo(float angle_deg, std::string &error) {
+    if (angle_deg < -90.0f) angle_deg = -90.0f;
+    if (angle_deg > 90.0f)  angle_deg = 90.0f;
+
+    char command[32];
+    std::snprintf(command, sizeof(command), "servo %d\n", static_cast<int>(angle_deg));
     return writeCommand(command, error);
 }
 

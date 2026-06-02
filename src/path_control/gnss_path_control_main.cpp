@@ -1,17 +1,24 @@
 #include "path_controller.h"
 #include "gps_publisher.h"
+#include "vehicle_cmd_listener.h"
 
 #include <algorithm>
 #include <csignal>
 #include <cstdlib>
+#include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <thread>
+#include <chrono>
 
 namespace {
 
 volatile std::sig_atomic_t g_stop_requested = 0;
+
+// Crack handling state
+bool g_crack_stop = false;
 
 void onSignal(int) {
     g_stop_requested = 1;
@@ -26,6 +33,13 @@ void printUsage(const char *program) {
               << "  week sow lat lon [height]\n"
               << "  GNSS,time,lat,lon[,height[,course_deg,speed_kph]]\n"
               << "  $GNGGA,... plus $GNVTG,... raw NMEA lines\n\n"
+              << "Crack handling:\n"
+              << "  gd32_bridge sends STOP/ADJUST/RESUME via Unix socket.\n"
+              << "  ADJUST carries gimbal angle delta for in-place rotation.\n"
+              << "\n"
+              << "Rotation calibration (one-time):\n"
+              << "  Set ROTATION_PERCENT and CALIB_K after experiment.\n"
+              << "\n"
               << "Example:\n"
               << "  cat processed_gnss.txt | " << program
               << " ./dataset/kf-gins.yaml --dry-run\n";
@@ -145,6 +159,81 @@ void printGnssData(int seq, const path_control::GnssPosition &fix) {
     std::cerr << oss.str() << std::endl;
 }
 
+// ---------------------------------------------------------------------------
+// Calibration parameters for open-loop in-place rotation
+// ---------------------------------------------------------------------------
+
+// Wheel speed percent used during rotation (both wheels, opposite directions).
+// Must be calibrated together with CALIB_K.
+constexpr int ROTATION_PERCENT = 15;
+
+// Calibration factor K:
+//   measured_angle_deg = ROTATION_PERCENT * K * time_seconds
+//   K = measured_angle_deg / (ROTATION_PERCENT * time_seconds)
+//
+// Calibration procedure:
+//   1. run: servo 0; set +P -P for exactly 5 seconds; stop
+//   2. measure how many degrees the vehicle rotated
+//   3. K = measured_deg / (P * 5)
+//
+// Example: rotated 60° in 5s at 15% → K = 60 / (15 * 5) = 0.8
+// Current: P=15, K=0.8  →  90° rotation takes 90/(15*0.8) = 7.5s
+constexpr double CALIB_K = 0.8;
+
+void doInPlaceRotation(path_control::Tb6612Driver &driver,
+                       float angle_deg,
+                       bool dry_run) {
+    // Clamp angle to reasonable range
+    if (angle_deg < -180.0f) angle_deg = -180.0f;
+    if (angle_deg > 180.0f)  angle_deg = 180.0f;
+
+    const double abs_angle = std::abs(static_cast<double>(angle_deg));
+    if (abs_angle < 0.5) {
+        std::cerr << "rotate: angle too small (" << angle_deg << "°), skipping"
+                  << std::endl;
+        return;
+    }
+
+    // Calculate rotation duration
+    // t = θ / (P × K)
+    const double duration_s = abs_angle / (ROTATION_PERCENT * CALIB_K);
+
+    // Sign determines direction: positive → turn right, negative → turn left
+    const int motor_val = (angle_deg > 0) ? ROTATION_PERCENT : -ROTATION_PERCENT;
+
+    std::cerr << "rotate: angle=" << angle_deg << "°"
+              << " percent=" << ROTATION_PERCENT
+              << " duration=" << duration_s << "s"
+              << " left=" << -motor_val << " right=" << motor_val
+              << std::endl;
+
+    if (dry_run) {
+        std::cerr << "rotate: (dry-run, not executed)" << std::endl;
+        return;
+    }
+
+    // Step 1: center steering servo
+    std::string error;
+    driver.servo(0.0f, error);
+
+    // Step 2: start counter-rotating (pure in-place rotation)
+    //   Left wheel: -motor_val, Right wheel: +motor_val
+    //   (adjust signs based on your vehicle's wheel mapping)
+    if (!driver.set(-motor_val, motor_val, error)) {
+        std::cerr << "rotate: set failed: " << error << std::endl;
+        return;
+    }
+
+    // Step 3: wait for calculated duration
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(static_cast<int>(duration_s * 1000.0)));
+
+    // Step 4: stop
+    driver.stop(error);
+
+    std::cerr << "rotate: complete" << std::endl;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -179,10 +268,22 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    // -----------------------------------------------------------------------
+    // Start vehicle command listener (receives STOP/ADJUST/RESUME from gd32)
+    // -----------------------------------------------------------------------
+    path_control::VehicleCmdListener cmd_listener;
+    if (!cmd_listener.start()) {
+        std::cerr << "Warning: failed to start vehicle command listener"
+                  << std::endl;
+    }
+
     std::cerr << "KF-GINS GNSS-only path control started" << std::endl;
     std::cerr << "TB6612 device: " << config.runtime.device
               << (config.runtime.dry_run ? " (dry-run)" : "") << std::endl;
     std::cerr << "Goal: " << config.goal.lat_deg << ", " << config.goal.lon_deg << std::endl;
+    std::cerr << "Rotation: P=" << ROTATION_PERCENT
+              << "%, K=" << CALIB_K
+              << " (calibrate in field)" << std::endl;
     std::cerr << "Waiting for GNSS position lines on stdin" << std::endl;
 
     std::string line;
@@ -192,6 +293,73 @@ int main(int argc, char **argv) {
     path_control::GnssVtg cached_vtg;
 
     while (!g_stop_requested && std::getline(std::cin, line)) {
+        // -------------------------------------------------------------------
+        // 1. Drain vehicle command socket (non-blocking)
+        // -------------------------------------------------------------------
+        {
+            path_control::VehicleCmdMessage cmd;
+            while (cmd_listener.tryRecv(cmd)) {
+                switch (cmd.cmd) {
+                case path_control::VehicleCmdType::STOP:
+                    std::cerr << "CMD: STOP" << std::endl;
+                    g_crack_stop = true;
+                    if (!driver.stop(error)) {
+                        std::cerr << "stop failed: " << error << std::endl;
+                    }
+                    break;
+
+                case path_control::VehicleCmdType::ADJUST:
+                    std::cerr << "CMD: ADJUST angle="
+                              << cmd.angle_delta_deg << "°" << std::endl;
+                    g_crack_stop = true;
+                    // Execute in-place rotation immediately
+                    doInPlaceRotation(driver, cmd.angle_delta_deg,
+                                      config.runtime.dry_run);
+                    break;
+
+                case path_control::VehicleCmdType::RESUME:
+                    std::cerr << "CMD: RESUME" << std::endl;
+                    g_crack_stop = false;
+                    break;
+
+                default:
+                    break;
+                }
+            }
+        }
+
+        // -------------------------------------------------------------------
+        // 2. If crack-stopped, keep brakes on and re-check commands next cycle
+        // -------------------------------------------------------------------
+        if (g_crack_stop) {
+            // 继续读取并发布GPS（保持地图更新），但不驱动电机
+            path_control::GnssVtg vtg;
+            if (path_control::parseGnssVtgLine(line, vtg)) {
+                cached_vtg = vtg;
+                has_cached_vtg = true;
+                continue;
+            }
+
+            path_control::GnssPosition fix;
+            if (path_control::parseGnssPositionLine(line, fix)) {
+                const int sample = seq + 1;
+                printGnssData(sample, fix);
+
+                // Still publish GPS so CarView2 map keeps updating
+                path_control::RobotState state;
+                state.x = 0; state.y = 0;
+                gps_pub.publish(fix, state, fix.has_time ? fix.time : 0.0);
+                seq = sample;
+            }
+
+            // Keep brakes on
+            driver.stop(error);
+            continue;
+        }
+
+        // -------------------------------------------------------------------
+        // 3. Normal GNSS path control (existing logic)
+        // -------------------------------------------------------------------
         path_control::GnssVtg vtg;
         if (path_control::parseGnssVtgLine(line, vtg)) {
             cached_vtg = vtg;

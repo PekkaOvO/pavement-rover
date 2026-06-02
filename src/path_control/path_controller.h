@@ -60,7 +60,7 @@ struct ControlParams {
     double min_speed_mps = 0.12;
     double lookahead_base_m = 0.60;
     double lookahead_gain = 0.60;
-    double track_width_m = 0.26;
+    double track_width_m = 0.16;
     double max_wheel_speed_mps = 0.80;
     double goal_tolerance_m = 0.25;
     double slow_radius_m = 1.20;
@@ -183,6 +183,7 @@ public:
     void close();
     bool stop(std::string &error);
     bool set(int left_percent, int right_percent, std::string &error);
+    bool servo(float angle_deg, std::string &error);   // -90..90°
 
 private:
     bool writeCommand(const std::string &command, std::string &error);
