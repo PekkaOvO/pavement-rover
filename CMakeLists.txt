@@ -32,7 +32,15 @@ add_executable(${PROJECT_NAME}-PathControl
 add_executable(${PROJECT_NAME}-GnssPathControl
         src/path_control/gnss_path_control_main.cpp
         src/path_control/path_controller.cpp
-        src/path_control/gps_publisher.cpp)
+        src/path_control/gps_publisher.cpp
+        src/path_control/vehicle_cmd_listener.cpp)
+
+# Standalone test control program (crack handling full-flow test)
+add_executable(${PROJECT_NAME}-TestControl test_control.cpp)
+target_link_libraries(${PROJECT_NAME}-TestControl pthread)
+set_target_properties(${PROJECT_NAME}-TestControl PROPERTIES
+    COMPILE_FLAGS "-pthread"
+    LINK_FLAGS "-pthread")
 
 # gd32_bridge: standalone daemon for GD32 image bridge
 add_subdirectory(gd32_bridge)

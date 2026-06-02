@@ -1,0 +1,59 @@
+# KF-GINS configuration — TEST VERSION with far-away goal
+# goal is ~1km east of start, giving plenty of time for crack handling tests
+
+# IMU and GNSS data file paths (not used in gnss_path_control mode)
+imupath: ""
+gnsspath: ""
+outputpath: ""
+imudatalen: 7
+imudatarate: 200
+starttime: 0
+endtime: -1
+
+# initial state (not used, but kept for format compat)
+initpos: [30.5, 114, 20]
+initvel: [0.0, 0.0, 0.0]
+initatt: [0.0, 0.0, 0.0]
+initgyrbias: [0, 0, 0]
+initaccbias: [0, 0, 0]
+initgyrscale: [0, 0, 0]
+initaccscale: [0, 0, 0]
+initposstd: [0.1, 0.1, 0.2]
+initvelstd: [0.05, 0.05, 0.05]
+initattstd: [0.5, 0.5, 1.0]
+
+imunoise:
+  arw: [0.24, 0.24, 0.24]
+  vrw: [0.24, 0.24, 0.24]
+  gbstd: [50.0, 50.0, 50.0]
+  abstd: [250.0, 250.0, 250.0]
+  gsstd: [1000.0, 1000.0, 1000.0]
+  asstd: [1000.0, 1000.0, 1000.0]
+  corrtime: 1.0
+
+antlever: [0.136, -0.301, -0.184]
+
+# Path-control module configuration
+# goal: 20m east of start — enough for stop→adjust→resume test
+path_control:
+  goal: [30.500000, 114.000200]
+  device: "/dev/tb6612"
+  dry_run: false
+  print_every: 1
+  max_command_percent: 40
+  left_scale: 1.0
+  right_scale: 1.0
+  swap_ab: false
+  invert_left: false
+  invert_right: false
+
+  control:
+    target_speed_mps: 0.15
+    min_speed_mps: 0.08
+    lookahead_base_m: 0.60
+    lookahead_gain: 0.60
+    track_width_m: 0.16
+    max_wheel_speed_mps: 0.40
+    goal_tolerance_m: 0.25
+    slow_radius_m: 1.20
+    path_step_m: 0.20

@@ -5,40 +5,82 @@
 
 namespace gd32_bridge {
 
-// GD32 USB-TTL frame (GD32 -> i.MX6ULL)
-struct Gd32Frame {
-    static constexpr uint16_t MAGIC = 0xAA55;
-    static constexpr uint8_t TYPE_IMAGE_ANGLE = 0x01;
-    static constexpr uint8_t TYPE_ANGLE_ONLY  = 0x02;
+// ============================================================================
+// USB CDC protocol — GD32 firmware → i.MX6ULL
+// ============================================================================
 
-    static constexpr size_t MAGIC_SIZE  = 2;
-    static constexpr size_t TYPE_SIZE   = 1;
-    static constexpr size_t LEN_SIZE    = 4;
-    static constexpr size_t CRC_SIZE    = 2;
-    static constexpr size_t HEADER_SIZE = MAGIC_SIZE + TYPE_SIZE + LEN_SIZE; // 7
+// USB packet header, 16 bytes
+//   All multi-byte fields are little-endian (GD32 native).
+struct UsbPacketHeader {
+    uint16_t magic;        // 0xAA55 — sync magic
+    uint8_t  type;         // 0x01=image, 0x02=detection/event
+    uint8_t  event;        // image: format; detection: event type
+    uint16_t width;        // image width (pixels)
+    uint16_t height;       // image height (pixels)
+    uint16_t packet_id;    // chunk index (0-based)
+    uint16_t packet_total; // total chunk count
+    uint16_t payload_len;  // bytes in payload
+    uint16_t reserved;
+} __attribute__((packed));
 
-    // JPEG max 128KB + trailing 4-byte float angle
-    static constexpr size_t MAX_PAYLOAD     = 128U * 1024U + 4U;
-    static constexpr size_t MAX_FRAME_SIZE  = HEADER_SIZE + MAX_PAYLOAD + CRC_SIZE;
+static_assert(sizeof(UsbPacketHeader) == 16, "UsbPacketHeader size unexpected");
 
-    static constexpr size_t ANGLE_ONLY_PAYLOAD = 4; // 4-byte float
+// USB packet types
+constexpr uint8_t USB_PKT_TYPE_IMAGE = 0x01;
+constexpr uint8_t USB_PKT_TYPE_DET   = 0x02;
+
+// Image event / format
+constexpr uint8_t USB_IMG_EVENT_RGB565 = 0x01;
+
+// Detection / flow event types
+constexpr uint8_t USB_DET_EVENT_NONE     = 0x00; // empty / no target
+constexpr uint8_t USB_DET_EVENT_STOP     = 0x01; // stop vehicle
+constexpr uint8_t USB_DET_EVENT_X_DELTA  = 0x02; // gimbal X angle delta valid
+constexpr uint8_t USB_DET_EVENT_FLOW_END = 0x03; // single crack flow end
+
+// Detection / flow object payload, 28 bytes
+//   Used when: type=0x02, event=USB_DET_EVENT_X_DELTA
+//   x_angle_delta_deg = current X servo angle - GIMBAL_X_INIT_ANGLE (80.0°)
+//       negative → servo is left of center
+//       0        → servo at center
+//       positive → servo is right of center
+#pragma pack(push, 1)
+struct UsbDetObject {
+    uint16_t cls_index;
+    uint16_t object_id;
+    uint16_t conf_q10000;
+    uint16_t reserved;
+    char     name[16];
+    float    x_angle_delta_deg;
 };
+#pragma pack(pop)
 
-// TCP binary protocol (i.MX6ULL -> CarView2)
+static_assert(sizeof(UsbDetObject) == 28, "UsbDetObject size unexpected");
+
+// ============================================================================
+// Frame queue markers (first byte of queued frame discriminator)
+// ============================================================================
+
+constexpr uint8_t QUEUE_FRAME_RGB565      = 0x01; // raw RGB565 image
+constexpr uint8_t QUEUE_FRAME_RGB565_ANOM = 0x04; // anomaly RGB565 + det object
+
+// ============================================================================
+// TCP protocol — i.MX6ULL → CarView2 (unchanged, kept compatible)
+// ============================================================================
+
 // Fixed 52-byte header + optional payload + CRC16(2)
-//
 // | MAGIC(2) | VERSION(1) | TYPE(1) | SEQ(4) | TS_MS(8) |
 // | LAT(8)   | LON(8)     | COURSE(4) | SPEED(4) | HEIGHT(4) |
 // | CAM_ANGLE(4) | IMAGE_LEN(4) |
 // Normal RGB565:  [IMAGE_DATA(IMAGE_LEN)] | CRC16(2)
-// Anomaly RGB565: [CdcDetObjectV2(28)] [IMAGE_DATA(IMAGE_LEN)] | CRC16(2)
+// Anomaly RGB565: [UsbDetObject(28)] [IMAGE_DATA(IMAGE_LEN)] | CRC16(2)
 struct TcpProtocol {
     static constexpr uint16_t MAGIC    = 0xAA55;
     static constexpr uint8_t  VERSION  = 0x01;
-    static constexpr uint8_t  TYPE_WITH_IMAGE = 0x01;
-    static constexpr uint8_t  TYPE_NO_IMAGE   = 0x02;
-    static constexpr uint8_t  TYPE_RGB565     = 0x03; // raw RGB565 image
-    static constexpr uint8_t  TYPE_RGB565_ANOMALY = 0x04; // DET_V2 metadata + raw RGB565 image
+    static constexpr uint8_t  TYPE_WITH_IMAGE     = 0x01;
+    static constexpr uint8_t  TYPE_NO_IMAGE       = 0x02;
+    static constexpr uint8_t  TYPE_RGB565         = 0x03;
+    static constexpr uint8_t  TYPE_RGB565_ANOMALY = 0x04;
 
     static constexpr size_t HEADER_SIZE = 52;
     static constexpr size_t CRC_SIZE    =  2;
@@ -59,51 +101,10 @@ struct TcpProtocol {
     // CRC16 at end of frame
 };
 
-// USB CDC packet header from GD32 camera (GD32 -> i.MX6ULL, CDC ACM)
-// Total header size: 20 bytes
-struct CdcPacketHeader {
-    uint16_t magic;       // 0xAA55
-    uint8_t  type;        // 0x01=image, 0x02=detection result
-    uint8_t  format;      // 0x01=RGB565 (if TYPE_IMAGE), 0x01/0x02=DET_V1/DET_V2 (if TYPE_DET)
-    uint32_t frame_id;    // frame sequence number
-    uint16_t width;       // image width (pixels)
-    uint16_t height;      // image height (pixels)
-    uint16_t chunk_id;    // current chunk index (0-based)
-    uint16_t chunk_total; // total number of chunks for this frame
-    uint16_t payload_len; // bytes of payload in this chunk
-    uint16_t reserved;    // reserved (zero)
-} __attribute__((packed));
+// ============================================================================
+// GPS state — published via Unix domain socket
+// ============================================================================
 
-static_assert(sizeof(CdcPacketHeader) == 20, "CdcPacketHeader size unexpected");
-
-// USB CDC packet types
-constexpr uint8_t CDC_PKT_TYPE_IMAGE      = 0x01;
-constexpr uint8_t CDC_PKT_TYPE_DET        = 0x02;
-
-// USB CDC packet formats
-constexpr uint8_t CDC_IMG_FMT_RGB565      = 0x01;
-constexpr uint8_t CDC_DET_FMT_V1          = 0x01;
-constexpr uint8_t CDC_DET_FMT_V2          = 0x02;
-
-#pragma pack(push, 1)
-struct CdcDetObjectV2 {
-    uint16_t cls_index;
-    uint16_t object_id;
-    uint16_t conf_q10000;
-    uint16_t reserved;
-    char name[16];
-    float x_angle_delta_deg;
-};
-#pragma pack(pop)
-
-static_assert(sizeof(CdcDetObjectV2) == 28, "CdcDetObjectV2 size unexpected");
-
-// Frame type markers pushed to FrameQueue (first byte discriminator)
-constexpr uint8_t QUEUE_FRAME_GD32    = 0xAA;  // Gd32Frame format (USB-TTL path)
-constexpr uint8_t QUEUE_FRAME_RGB565  = 0x01;  // Raw RGB565 (USB CDC path)
-constexpr uint8_t QUEUE_FRAME_RGB565_DET = 0x04; // CdcDetObjectV2 + raw RGB565
-
-// GPS state published via Unix domain socket (gnss_path_control -> gd32_bridge)
 #pragma pack(push, 1)
 struct GpsState {
     double lat_deg;
@@ -114,10 +115,31 @@ struct GpsState {
     double yaw_rad;
     double forward_speed_mps;
     double timestamp;
-    uint8_t has_fix; // bool
+    uint8_t has_fix;
 };
 #pragma pack(pop)
 
 static_assert(sizeof(GpsState) == 65, "GpsState size unexpected");
+
+// ============================================================================
+// Legacy aliases (kept for backward compatibility during transition)
+// ============================================================================
+
+// Old 20-byte header — no longer used by GD32 firmware V2.2.0+
+// Keep the define available so old code still compiles.
+struct [[deprecated("Use UsbPacketHeader instead")]] CdcPacketHeader {
+    uint16_t magic;
+    uint8_t  type;
+    uint8_t  format;
+    uint32_t frame_id;
+    uint16_t width;
+    uint16_t height;
+    uint16_t chunk_id;
+    uint16_t chunk_total;
+    uint16_t payload_len;
+    uint16_t reserved;
+} __attribute__((packed));
+
+using CdcDetObjectV2 [[deprecated("Use UsbDetObject instead")]] = UsbDetObject;
 
 } // namespace gd32_bridge

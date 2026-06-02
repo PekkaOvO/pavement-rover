@@ -9,6 +9,7 @@
 #include "usb_cdc_reader.h"
 #include "gps_receiver.h"
 #include "tcp_sender.h"
+#include "vehicle_cmd_publisher.h"
 
 namespace {
 
@@ -24,7 +25,8 @@ void printUsage(const char *prog) {
               << "  server_host: CarView2 IP address\n"
               << "  server_port: CarView2 TCP port (default 8766)\n"
               << "  CDC device:  /dev/ttyACM0 (fixed)\n"
-              << "  GPS socket:  /tmp/gd32_gps.sock (fixed)\n";
+              << "  GPS socket:  /tmp/gd32_gps.sock (fixed)\n"
+              << "  Cmd socket:  /tmp/gd32_vehicle_cmd.sock (fixed)\n";
 }
 
 } // namespace
@@ -46,12 +48,19 @@ int main(int argc, char **argv) {
     std::cerr << "gd32_bridge starting:\n"
               << "  server:  " << host << ":" << port << "\n"
               << "  cdc:     /dev/ttyACM0 (USB CDC ACM)\n"
-              << "  gps:     /tmp/gd32_gps.sock\n";
+              << "  gps:     /tmp/gd32_gps.sock\n"
+              << "  cmd:     /tmp/gd32_vehicle_cmd.sock\n";
 
     gd32_bridge::FrameQueue queue(32);
-    gd32_bridge::UsbCdcReader cdc(queue, "/dev/ttyACM0");
+    gd32_bridge::VehicleCmdPublisher cmd_pub;
+    gd32_bridge::UsbCdcReader cdc(queue, cmd_pub, "/dev/ttyACM0");
     gd32_bridge::GpsReceiver gps;
     gd32_bridge::TcpSender tcp(queue, gps, host, port);
+
+    if (!cmd_pub.start()) {
+        std::cerr << "Failed to start vehicle command publisher" << std::endl;
+        return 1;
+    }
 
     if (!gps.start()) {
         std::cerr << "Failed to start GPS receiver" << std::endl;
@@ -85,6 +94,7 @@ int main(int argc, char **argv) {
     tcp.stop();
     cdc.stop();
     gps.stop();
+    cmd_pub.stop();
     std::cerr << "gd32_bridge stopped" << std::endl;
     return 0;
 }
