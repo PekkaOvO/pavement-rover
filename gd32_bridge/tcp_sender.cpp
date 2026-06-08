@@ -67,29 +67,32 @@ void TcpSender::packFrame(const std::vector<uint8_t> &gd32_frame,
         goto build;
 
     // Check for raw RGB565 frame (from USB CDC path)
-    if (gd32_frame[0] == QUEUE_FRAME_RGB565 && gd32_frame.size() >= 9) {
-        // Frame format: [TYPE(1)][FRAME_ID(4)][WIDTH(2)][HEIGHT(2)][RGB565_DATA]
-        uint16_t width  = (uint16_t)gd32_frame[5] | ((uint16_t)gd32_frame[6] << 8);
-        uint16_t height = (uint16_t)gd32_frame[7] | ((uint16_t)gd32_frame[8] << 8);
+    if (gd32_frame[0] == QUEUE_FRAME_RGB565 && gd32_frame.size() >= 5) {
+        // Frame format: [TYPE(1)][WIDTH(2,LE)][HEIGHT(2,LE)][RGB565_DATA]
+        uint16_t width  = (uint16_t)gd32_frame[1] | ((uint16_t)gd32_frame[2] << 8);
+        uint16_t height = (uint16_t)gd32_frame[3] | ((uint16_t)gd32_frame[4] << 8);
         image_len = (uint32_t)width * height * 2;
 
-        if (gd32_frame.size() >= 9 + image_len) {
+        if (gd32_frame.size() >= 5 + image_len) {
             type = TcpProtocol::TYPE_RGB565;
-            image_data = gd32_frame.data() + 9;
+            image_data = gd32_frame.data() + 5;
         }
         goto build;
     }
 
-    if (gd32_frame[0] == QUEUE_FRAME_RGB565_DET && gd32_frame.size() >= 9 + sizeof(CdcDetObjectV2)) {
-        uint16_t width  = (uint16_t)gd32_frame[5] | ((uint16_t)gd32_frame[6] << 8);
-        uint16_t height = (uint16_t)gd32_frame[7] | ((uint16_t)gd32_frame[8] << 8);
+    if ((gd32_frame[0] == QUEUE_FRAME_RGB565_DET ||
+         gd32_frame[0] == QUEUE_FRAME_RGB565_ANOM) &&
+        gd32_frame.size() >= 5 + sizeof(UsbDetObject)) {
+        // Frame format: [TYPE(1)][WIDTH(2,LE)][HEIGHT(2,LE)][UsbDetObject(28)][RGB565_DATA]
+        uint16_t width  = (uint16_t)gd32_frame[1] | ((uint16_t)gd32_frame[2] << 8);
+        uint16_t height = (uint16_t)gd32_frame[3] | ((uint16_t)gd32_frame[4] << 8);
         image_len = (uint32_t)width * height * 2;
 
-        if (gd32_frame.size() >= 9 + sizeof(CdcDetObjectV2) + image_len) {
+        if (gd32_frame.size() >= 5 + sizeof(UsbDetObject) + image_len) {
             type = TcpProtocol::TYPE_RGB565_ANOMALY;
-            detection_data = gd32_frame.data() + 9;
-            detection_len = sizeof(CdcDetObjectV2);
-            image_data = gd32_frame.data() + 9 + sizeof(CdcDetObjectV2);
+            detection_data = gd32_frame.data() + 5;
+            detection_len = sizeof(UsbDetObject);
+            image_data = gd32_frame.data() + 5 + sizeof(UsbDetObject);
         }
         goto build;
     }

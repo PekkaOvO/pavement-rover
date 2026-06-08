@@ -62,6 +62,7 @@ static_assert(sizeof(UsbDetObject) == 28, "UsbDetObject size unexpected");
 // ============================================================================
 
 constexpr uint8_t QUEUE_FRAME_RGB565      = 0x01; // raw RGB565 image
+constexpr uint8_t QUEUE_FRAME_RGB565_DET = 0x03; // RGB565 + embedded UsbDetObject(28B)
 constexpr uint8_t QUEUE_FRAME_RGB565_ANOM = 0x04; // anomaly RGB565 + det object
 
 // ============================================================================
@@ -141,5 +142,28 @@ struct [[deprecated("Use UsbPacketHeader instead")]] CdcPacketHeader {
 } __attribute__((packed));
 
 using CdcDetObjectV2 [[deprecated("Use UsbDetObject instead")]] = UsbDetObject;
+
+// ============================================================================
+// Gd32Frame — USB-TTL UART frame format (legacy path, kept for completeness)
+// ============================================================================
+//
+// Frame format:
+//   [MAGIC(2)][TYPE(1)][PAYLOAD_LEN(4)][PAYLOAD(VAR)][CRC16(2)]
+//
+//   MAGIC:       0xAA55 (big-endian for sync search)
+//   TYPE:        0x01 = image + angle (last 4 bytes of payload)
+//                0x02 = angle only
+//   PAYLOAD_LEN: big-endian uint32
+//   CRC16:       CCITT poly 0x1021, covers header + payload
+struct Gd32Frame {
+    static constexpr size_t HEADER_SIZE = 7;    // MAGIC(2) + TYPE(1) + LEN(4)
+    static constexpr size_t CRC_SIZE    = 2;
+
+    static constexpr uint8_t TYPE_IMAGE_ANGLE = 0x01; // payload = image + angle(4B)
+    static constexpr uint8_t TYPE_ANGLE_ONLY  = 0x02; // payload = angle(4B)
+
+    // Max payload: 256x256 RGB565 (131072) + angle(4) + margin
+    static constexpr uint32_t MAX_PAYLOAD = 200000;
+};
 
 } // namespace gd32_bridge

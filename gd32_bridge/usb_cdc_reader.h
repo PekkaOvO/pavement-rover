@@ -48,13 +48,47 @@ private:
                          const UsbDetObject *detection = nullptr);
 
     // Per-frame reassembly state
+    //
+    // GD32 firmware sends chunks out of order (last chunk first, then 0..N-2).
+    // Slot-based storage handles any chunk arrival order.
     struct ReassemblyBuffer {
         uint16_t width = 0;
         uint16_t height = 0;
         uint16_t packet_total = 0;
-        uint16_t last_packet_id = 0;
-        std::vector<uint8_t> data;
+        uint16_t chunks_received = 0;
         bool active = false;
+
+        std::vector<std::vector<uint8_t>> slots;
+
+        void startFrame(uint16_t w, uint16_t h, uint16_t total) {
+            width = w;
+            height = h;
+            packet_total = total;
+            chunks_received = 0;
+            slots.resize(total);
+            active = true;
+        }
+
+        void reset() {
+            active = false;
+            slots.clear();
+            width = height = packet_total = chunks_received = 0;
+        }
+
+        bool allReceived() const {
+            return active && chunks_received >= packet_total;
+        }
+
+        std::vector<uint8_t> assemble() {
+            size_t total_size = 0;
+            for (auto &s : slots)
+                total_size += s.size();
+            std::vector<uint8_t> result;
+            result.reserve(total_size);
+            for (auto &s : slots)
+                result.insert(result.end(), s.begin(), s.end());
+            return result;
+        }
     };
 
     FrameQueue &queue_;
