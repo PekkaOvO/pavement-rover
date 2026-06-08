@@ -92,14 +92,16 @@ void UsbCdcReader::pushRgb565Frame(uint16_t width, uint16_t height,
 // Main read loop
 // ---------------------------------------------------------------------------
 void UsbCdcReader::readLoop() {
+    // Pre-allocate raw read buffer to max expected size to eliminate runtime realloc
     std::vector<uint8_t> buf;
-    buf.reserve(512 * 1024);  // 512 KB
+    buf.reserve(2 * 1024 * 1024);  // 2 MB (matches overflow guard)
 
     // Track anomaly state: after STOP event, mark subsequent images as anomaly
     // until detection ends or an X_DELTA event is processed.
     bool anomaly_pending = false;
 
     while (running_) {
+        try {
         // Open device if not open
         if (fd_ < 0) {
             fd_ = ::open(device_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
@@ -113,18 +115,25 @@ void UsbCdcReader::readLoop() {
 
             ioctl(fd_, TIOCEXCL);
 
+            // Assert DTR (some GD32 CDC implementations need this to stream data)
+            int dtr_flag = TIOCM_DTR;
+            ioctl(fd_, TIOCMBIS, &dtr_flag);
+
             struct termios tio;
             if (tcgetattr(fd_, &tio) == 0) {
                 cfmakeraw(&tio);
+                tio.c_cflag |= CLOCAL | CREAD;
                 tio.c_cc[VMIN]  = 1;
                 tio.c_cc[VTIME] = 0;
+                // Match Python script baudrate 115200
+                cfsetispeed(&tio, B115200);
+                cfsetospeed(&tio, B115200);
                 tcsetattr(fd_, TCSANOW, &tio);
                 tcflush(fd_, TCIOFLUSH);
             }
 
             std::cerr << "usb_cdc: opened " << device_ << std::endl;
-            reassembly_.active = false;
-            reassembly_.data.clear();
+            reassembly_.reset();
             anomaly_pending = false;
         }
 
@@ -146,6 +155,19 @@ void UsbCdcReader::readLoop() {
             continue;
 
         buf.insert(buf.end(), raw, raw + n);
+
+        // Guard against runaway buffer (bad data with no valid sync)
+        if (buf.size() > 2 * 1024 * 1024) {  // 2 MB sanity cap
+            std::cerr << "usb_cdc: input buffer overflow (" << buf.size()
+                      << "), first 64 bytes: ";
+            for (size_t i = 0; i < 64 && i < buf.size(); ++i)
+                std::cerr << std::hex << (int)buf[i] << " ";
+            std::cerr << std::dec << "..." << std::endl;
+            // Capacity stays allocated (pre-reserved), no realloc needed
+            buf.clear();
+            reassembly_.reset();
+            continue;
+        }
 
         // Process frames: search for 0xAA55 magic
         while (buf.size() >= sizeof(UsbPacketHeader)) {
@@ -175,6 +197,29 @@ void UsbCdcReader::readLoop() {
             if (!parseHeader(buf.data(), buf.size(), hdr)) {
                 buf.erase(buf.begin());
                 continue;
+            }
+
+            // Sanity-check header to prevent bad_alloc from garbage data
+            if (hdr.type == USB_PKT_TYPE_IMAGE) {
+                if (hdr.width == 0 || hdr.height == 0 ||
+                    hdr.width > 640 || hdr.height > 480 ||
+                    hdr.packet_total == 0 ||
+                    hdr.packet_total > 2048) {
+                    buf.erase(buf.begin());
+                    continue;
+                }
+            }
+
+            // Diagnostic: print first 10 parsed headers
+            static int diag_count = 0;
+            if (diag_count++ < 10) {
+                std::cerr << "usb_cdc: pkt type=" << (int)hdr.type
+                          << " event=" << (int)hdr.event
+                          << " w=" << hdr.width << " h=" << hdr.height
+                          << " id=" << hdr.packet_id
+                          << " total=" << hdr.packet_total
+                          << " plen=" << hdr.payload_len
+                          << std::endl;
             }
 
             size_t packet_size = sizeof(UsbPacketHeader) + hdr.payload_len;
@@ -220,57 +265,65 @@ void UsbCdcReader::readLoop() {
                 continue;
 
             } else if (hdr.type == USB_PKT_TYPE_IMAGE) {
-                // ── Image packet ──
+                // ── Image packet (slot-based reassembly) ──
                 if (hdr.event != USB_IMG_EVENT_RGB565) {
                     buf.erase(buf.begin(), buf.begin() + packet_size);
                     continue;
                 }
 
-                // Start new reassembly if packet_id restarted
+                // Start new reassembly if frame parameters changed
+                // (GD32 sends chunks out of order: last chunk first, then 0..N-2)
                 if (!reassembly_.active ||
-                    hdr.packet_id < reassembly_.last_packet_id) {
-                    reassembly_.width        = hdr.width;
-                    reassembly_.height       = hdr.height;
-                    reassembly_.packet_total = hdr.packet_total;
-                    reassembly_.data.clear();
-                    reassembly_.active       = true;
-                }
-                reassembly_.last_packet_id = hdr.packet_id;
+                    hdr.width != reassembly_.width ||
+                    hdr.height != reassembly_.height ||
+                    hdr.packet_total != reassembly_.packet_total) {
 
-                reassembly_.data.insert(reassembly_.data.end(),
-                                        payload, payload + hdr.payload_len);
+                    if (reassembly_.active)
+                        reassembly_errors++;
+                    reassembly_.startFrame(hdr.width, hdr.height,
+                                           hdr.packet_total);
+                }
+
+                // Bounds check against packet_total
+                if (hdr.packet_id >= reassembly_.packet_total) {
+                    buf.erase(buf.begin(), buf.begin() + packet_size);
+                    continue;
+                }
+
+                // Store chunk in its slot (handles any arrival order)
+                if (reassembly_.slots[hdr.packet_id].empty())
+                    reassembly_.chunks_received++;
+                reassembly_.slots[hdr.packet_id].assign(
+                    payload, payload + hdr.payload_len);
                 buf.erase(buf.begin(), buf.begin() + packet_size);
 
-                // Check if frame is complete
+                // Check if all chunks received → frame complete
                 size_t expected_size = (size_t)hdr.width * hdr.height * 2;
-                if (hdr.packet_id + 1 >= hdr.packet_total &&
-                    reassembly_.data.size() >= expected_size) {
-
-                    // If anomaly is pending, attach detection (without det obj
-                    // we just mark it; if we had cached det data we'd attach it)
-                    // For now, anomaly_pending just marks the frame type.
-                    const UsbDetObject *det = nullptr;
-                    // In future: look up cached detection if needed.
-
-                    pushRgb565Frame(reassembly_.width, reassembly_.height,
-                                    reassembly_.data.data(), expected_size,
-                                    anomaly_pending ? det : nullptr);
-                    frames_received++;
-
-                    reassembly_.active = false;
-                    reassembly_.data.clear();
-                } else if (hdr.packet_id + 1 >= hdr.packet_total) {
-                    // Last chunk but size mismatch → discard
-                    reassembly_errors++;
-                    reassembly_.active = false;
-                    reassembly_.data.clear();
+                if (reassembly_.allReceived()) {
+                    auto frame_data = reassembly_.assemble();
+                    if (frame_data.size() >= expected_size) {
+                        pushRgb565Frame(reassembly_.width, reassembly_.height,
+                                        frame_data.data(), expected_size,
+                                        anomaly_pending ? nullptr : nullptr);
+                        frames_received++;
+                    } else {
+                        reassembly_errors++;
+                    }
+                    reassembly_.reset();
                 }
             } else {
                 // Unknown type → skip
                 buf.erase(buf.begin(), buf.begin() + packet_size);
             }
         }
+    } catch (const std::exception &e) {
+        std::cerr << "usb_cdc: exception: " << e.what()
+                  << " buf=" << buf.size()
+                  << std::endl;
+        buf.clear();
+        reassembly_.reset();
     }
+}
 
     if (fd_ >= 0) {
         ::close(fd_);

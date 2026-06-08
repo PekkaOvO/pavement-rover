@@ -93,7 +93,7 @@ path_control:
   print_every: 1
   max_command_percent: 40
   left_scale: 1.0
-  right_scale: 1.0
+  right_scale: 0.8
   swap_ab: false
   invert_left: false
   invert_right: false

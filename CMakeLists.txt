@@ -35,10 +35,31 @@ add_executable(${PROJECT_NAME}-GnssPathControl
         src/path_control/gps_publisher.cpp
         src/path_control/vehicle_cmd_listener.cpp)
 
+# Obstacle avoidance demo — standalone program that listens for GD32 commands
+# and executes a multi-phase obstacle avoidance sequence.
+add_executable(${PROJECT_NAME}-ObstacleAvoidDemo obstacle_avoid_demo.cpp
+        src/path_control/path_controller.cpp
+        src/path_control/vehicle_cmd_listener.cpp)
+target_link_libraries(${PROJECT_NAME}-ObstacleAvoidDemo yaml-cpp)
+
 # Standalone test control program (crack handling full-flow test)
 add_executable(${PROJECT_NAME}-TestControl test_control.cpp)
 target_link_libraries(${PROJECT_NAME}-TestControl pthread)
 set_target_properties(${PROJECT_NAME}-TestControl PROPERTIES
+    COMPILE_FLAGS "-pthread"
+    LINK_FLAGS "-pthread")
+
+# Standalone static GPS test — sends fixed lat/lon to CarView2 via TCP
+add_executable(${PROJECT_NAME}-TestStaticGps test_static_gps.cpp)
+target_link_libraries(${PROJECT_NAME}-TestStaticGps pthread)
+set_target_properties(${PROJECT_NAME}-TestStaticGps PROPERTIES
+    COMPILE_FLAGS "-pthread"
+    LINK_FLAGS "-pthread")
+
+# Live GPS test — reads NMEA from serial port, sends to CarView2 via TCP
+add_executable(${PROJECT_NAME}-TestLiveGps test_live_gps.cpp)
+target_link_libraries(${PROJECT_NAME}-TestLiveGps pthread)
+set_target_properties(${PROJECT_NAME}-TestLiveGps PROPERTIES
     COMPILE_FLAGS "-pthread"
     LINK_FLAGS "-pthread")
 

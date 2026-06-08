@@ -1,0 +1,93 @@
+# =============================================================================
+# Obstacle Avoidance Demo 配置文件
+#
+# 所有阶段的时间和速度均可在此调节。
+# 直行基准速度 forward_speed_percent 是基础，所有转弯阶段的速度都通过
+# 乘数系数（coeff）计算：最终速度 = forward_speed_percent × coeff
+# 这样调直行速度时，所有转弯阶段自动等比例缩放。
+#
+# 注意：不修改 kf-gins.yaml，本 demo 使用独立配置。
+# =============================================================================
+obstacle_avoid_demo:
+
+  # ---- 设备设置 ----
+  device: "/dev/tb6612"
+  dry_run: false
+  max_command_percent: 40          # 最大 PWM 百分比限幅
+  left_scale:  1.0                 # 匹配 kf-gins.yaml 的电机校准
+  right_scale: 0.48                # 匹配 kf-gins.yaml 的电机校准
+
+  # ===================================================================
+  # 直行基准速度（调好的值，不要改）
+  # 命令值 = forward_speed_percent (直接传给 driver.set)
+  # 实际值 = forward_speed_percent × left_scale / right_scale
+  # 例如 forward_speed_percent=40, left_scale=1.0, right_scale=0.48
+  #   → 命令: L=40% R=40%, 实际: L=40% R=19% (40×0.48)
+  #   匹配开发板 pure pursuit 直行时的输出
+  # ===================================================================
+  forward_speed_percent: 40
+
+  # ===================================================================
+  # Phase 2: 原地旋转参数
+  #
+  # 旋转公式: angle(°) = rotation_percent × rotation_calib_k × t(s)
+  #          → t = abs(angle) / (rotation_percent × rotation_calib_k)
+  #
+  # 标定方法:
+  #   1. rotation_percent = 15, 执行 set(+15, -15) 持续 5 秒
+  #   2. 测量实际旋转角度
+  #   3. calib_k = 实测角度 / (15 × 5)
+  # ===================================================================
+  rotation_percent:  15
+  rotation_calib_k:  0.8
+  default_rotation_angle_deg: 90.0   # 如果 GD32 未发送 ADJUST 时的默认角度
+  rotation_wait_timeout_s: 10.0      # 等 ADJUST 超时（未使用，保留备用）
+
+  # ===================================================================
+  # Phase 4: 停止等待时间
+  # ===================================================================
+  stop_duration_s: 2.0
+
+  # ===================================================================
+  # Phase 4: 后退（整体偏右）
+  #   backup_servo_angle: 负值=前轮左转（后退时车尾往右偏）
+  #   backup_left_coeff:   负值=后退, 系数小=慢 → 实际 = 40 × (-0.75) = -30%
+  #   backup_right_coeff:  负值=后退, 系数大=快 → 实际 = 40 × (-1.25) = -50% → clamp 到 -40%
+  # ===================================================================
+  backup_duration_s:    1.5
+  backup_servo_angle:   -30
+  backup_left_coeff:    -0.75
+  backup_right_coeff:   -1.25
+
+  # ===================================================================
+  # Phase 5: 前进绕行（往右绕开障碍物）
+  #   evade_servo_angle:  正值=前轮右转
+  #   evade_left_coeff:   正值=前进, 系数大=快 → 实际 = 40 × 1.5 = 60% → clamp 到 40%
+  #   evade_right_coeff:  正值=前进, 系数小=慢 → 实际 = 40 × 0.75 = 30%
+  # ===================================================================
+  evade_duration_s:    2.0
+  evade_servo_angle:   30
+  evade_left_coeff:    1.5
+  evade_right_coeff:   0.75
+
+  # ===================================================================
+  # Phase 6: 直行（系数 1.0 表示与基准速度相同）
+  # ===================================================================
+  straight_duration_s: 3.0
+  straight_coeff:      1.0
+
+  # ===================================================================
+  # Phase 7: 左转回正
+  #   turn_left_servo_angle:  负值=前轮左转
+  #   turn_left_left_coeff:   慢 → 实际 = 40 × 0.75 = 30%
+  #   turn_left_right_coeff:  快 → 实际 = 40 × 1.5 = 60% → clamp 到 40%
+  # ===================================================================
+  turn_left_duration_s:     1.5
+  turn_left_servo_angle:    -30
+  turn_left_left_coeff:     0.75
+  turn_left_right_coeff:    1.5
+
+  # ===================================================================
+  # Final: 绕行完成后继续前进（使用 forward_speed_percent 直行）
+  # ===================================================================
+  # 无额外参数，直接使用 forward_speed_percent: 20
