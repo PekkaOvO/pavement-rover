@@ -101,7 +101,9 @@ int main(int argc, char **argv) {
     }
 
     // 初始化控制器与驱动
-    path_control::PathController controller(config.goal, config.control);
+    const std::vector<path_control::GeoPoint> goals =
+        config.has_goals ? config.goals : std::vector<path_control::GeoPoint>{config.goal};
+    path_control::PathController controller(goals, config.control);
     path_control::Tb6612Driver driver(config.runtime);
 
     if (!driver.open(error)) {
@@ -113,7 +115,8 @@ int main(int argc, char **argv) {
     std::cerr << "KF-GINS path control started" << std::endl;
     std::cerr << "TB6612 device: " << config.runtime.device
               << (config.runtime.dry_run ? " (dry-run)" : "") << std::endl;
-    std::cerr << "Goal: " << config.goal.lat_deg << ", " << config.goal.lon_deg << std::endl;
+    std::cerr << "Goal: " << config.goal.lat_deg << ", " << config.goal.lon_deg
+              << " (" << goals.size() << " waypoints)" << std::endl;
     std::cerr << "Waiting for NAV lines on stdin" << std::endl;
 
     std::string line;
@@ -144,7 +147,8 @@ int main(int argc, char **argv) {
             const path_control::Point2d goal_local = controller.goalLocal();
             std::cerr << "Origin: " << origin.lat_deg << ", " << origin.lon_deg
                       << " goal_local_m=(" << goal_local.x << ", " << goal_local.y << ")"
-                      << " path_points=" << controller.pathSize() << std::endl;
+                      << " path_points=" << controller.pathSize()
+                      << " waypoints=" << controller.goalsCount() << std::endl;
             origin_announced = true;
         }
         // 判断是否调用函数输出状态。

@@ -1,0 +1,181 @@
+============================================================
+ GD32 ←→ i.MX6ULL USB CDC 数据帧格式说明
+============================================================
+
+本文档定义 GD32 固件通过 USB CDC ACM 发送给 i.MX6ULL 的
+数据帧格式。接收端程序为 gd32_bridge (gd32_bridge/usb_cdc_reader.cpp)。
+
+============================================================
+ 一、USB CDC 数据包通用头 (16 字节)
+============================================================
+
+GD32 发送的每一帧都以 16 字节头部开始，小端序 (Little-Endian)。
+
+typedef struct {
+    uint16_t magic;        // 0xAA55 — 同步标志
+    uint8_t  type;         // 数据类型 (见下文)
+    uint8_t  event;        // 子类型 / 事件
+    uint16_t width;        // 图像宽度 (像素)
+    uint16_t height;       // 图像高度 (像素)
+    uint16_t packet_id;    // 分包索引 (0 开始)
+    uint16_t packet_total; // 总分包数
+    uint16_t payload_len;  // 负载字节数
+    uint16_t reserved;     // 保留
+} __attribute__((packed));
+// 总计 16 字节
+
+定位偏移:
+  [0-1]   magic
+  [2]     type
+  [3]     event
+  [4-5]   width
+  [6-7]   height
+  [8-9]   packet_id
+  [10-11] packet_total
+  [12-13] payload_len
+  [14-15] reserved
+
+帧总长度 = sizeof(header) + payload_len
+
+============================================================
+ 二、type 字段定义
+============================================================
+
+type = 0x01  — 图像帧 (RGB565)
+type = 0x02  — 检测/事件帧 (见第三节)
+type = 0x03  — ★【新增】激光测距数据帧 (见第四节)
+
+============================================================
+ 三、检测/事件帧 (type=0x02)
+============================================================
+
+event 字段定义:
+
+  0x00  USB_DET_EVENT_NONE       — 无事件 / 无目标
+  0x01  USB_DET_EVENT_STOP       — AI 发现目标，停车居中 (第一次停车)
+  0x02  USB_DET_EVENT_X_DELTA    — 云台已居中，携带角度偏差
+  0x03  USB_DET_EVENT_FLOW_END   — 裂缝检测流程结束
+  0x04  USB_DET_EVENT_CRACK_STOP — ★【新增】激光检测到裂缝，停车拍照 (第二次停车)
+
+event=0x02 (X_DELTA) 时携带 28 字节对象负载:
+
+  typedef struct {
+      uint16_t cls_index;         // 类别索引
+      uint16_t object_id;         // 对象 ID
+      uint16_t conf_q10000;       // 置信度 (0-10000)
+      uint16_t reserved;
+      char     name[16];          // 类别名称
+      float    x_angle_delta_deg; // X 轴角度偏差
+  } __attribute__((packed));
+
+其他 event (0x01, 0x03, 0x04) 不携带负载, payload_len=0。
+
+★ 改动说明:
+   - 原本激光检测到裂缝发送 USB_DET_EVENT_STOP (0x01)，
+     现改为发送 USB_DET_EVENT_CRACK_STOP (0x04)，
+     以区分 AI 发现目标停车和激光检测裂缝停车。
+   - GD32 需要在 app_c2.txt 中增加:
+       #define USB_DET_EVENT_CRACK_STOP  0x04U
+   - 在 APP_FLOW_STATE_LASER_MONITORING 中，
+     将 usb_det_request_event(USB_DET_EVENT_STOP)
+     改为 usb_det_request_event(USB_DET_EVENT_CRACK_STOP)
+
+============================================================
+ 四、激光测距数据帧 (type=0x03) ★【新增】
+============================================================
+
+GD32 需要按一定频率 (建议 10-20Hz) 发送激光距离信息，
+用于 i.MX6ULL 转发到 CarView2 展示波形。
+
+帧结构:
+  [16 字节通用头] + [2 字节负载] = 总计 18 字节
+
+头字段设置:
+  magic       = 0xAA55
+  type        = 0x03 (USB_PKT_TYPE_LASER)
+  event       = 0
+  width       = 0
+  height      = 0
+  packet_id   = 0
+  packet_total = 0
+  payload_len = 2
+  reserved    = 0
+
+负载 (2 字节, 小端序):
+  [0]        = distance & 0xFF      (低字节)
+  [1]        = (distance >> 8) & 0xFF  (高字节)
+  distance   = uint16_t, 单位 = 厘米 * 100
+              例如: 15.25 cm → 1525 → 0x05F5
+              范围: 0-3000 (0.00-30.00 cm)
+
+GD32 需要在 app_c2.txt 中增加:
+  #define USB_PKT_TYPE_LASER  0x03U
+
+并在 app_laser_poll() 中或定时器中将最新激光距离
+按此格式组装并发送。参考代码:
+
+  void app_laser_send_usb(uint16_t dist_cm_x100)
+  {
+      usb_packet_header_t hdr;
+      uint8_t payload[2];
+      uint8_t packet[sizeof(hdr) + 2];
+
+      hdr.magic = USB_PKT_MAGIC;         // 0xAA55
+      hdr.type = USB_PKT_TYPE_LASER;     // 0x03
+      hdr.event = 0;
+      hdr.width = 0;
+      hdr.height = 0;
+      hdr.packet_id = 0;
+      hdr.packet_total = 0;
+      hdr.payload_len = 2;
+      hdr.reserved = 0;
+
+      payload[0] = (uint8_t)(dist_cm_x100 & 0xFF);
+      payload[1] = (uint8_t)((dist_cm_x100 >> 8) & 0xFF);
+
+      memcpy(packet, &hdr, sizeof(hdr));
+      memcpy(packet + sizeof(hdr), payload, 2);
+
+      cdc_acm_user_send(&cdc_acm, packet, sizeof(packet));
+  }
+
+============================================================
+ 五、USB CDC 接收端 (i.MX6ULL gd32_bridge)
+============================================================
+
+接收端程序位于:
+  gd32_bridge/usb_cdc_reader.cpp
+  gd32_bridge/vehicle_cmd.h
+  gd32_bridge/vehicle_cmd_publisher.h
+  gd32_bridge/vehicle_cmd_publisher.cpp
+
+收到 USB_DET_EVENT_CRACK_STOP (0x04) 后:
+  → 通过 Unix DGRAM 发送 CMD_CRACK_STOP=4 给 PathControl
+
+收到 USB_PKT_TYPE_LASER (0x03) 后:
+  → 内部队列排队，由 tcp_sender 转发给 CarView2
+    (TCP 协议 type=0x05, payload=2字节大端序)
+
+============================================================
+ 六、完整流程总结
+============================================================
+
+  AI 发现目标 → USB_DET_EVENT_STOP (0x01) → 车辆第一次停车
+  → 云台居中 → USB_DET_EVENT_X_DELTA (0x02, 带角度) → 旋转对准
+  → 激光基线测量
+  → 检测到裂缝 → USB_DET_EVENT_CRACK_STOP (0x04) ★→ 第二次停车拍照
+  → 拍照完成 → USB_DET_EVENT_FLOW_END (0x03) → 避障后继续巡检
+
+  激光数据全程按一定频率 (10-20Hz) 通过 USB_PKT_TYPE_LASER (0x03) ★ 发送
+
+============================================================
+ 七、GD32 固件需要修改的宏定义汇总
+============================================================
+
+在 app_c2.txt 适当位置添加:
+
+  #define USB_PKT_TYPE_LASER         0x03U    // ★ 新增：激光测距数据
+  #define USB_DET_EVENT_CRACK_STOP   0x04U    // ★ 新增：激光检测裂缝停车
+
+  注: USB_DET_EVENT_CRACK_STOP 已添加，请确认存在。
+      USB_PKT_TYPE_LASER 需要新增。

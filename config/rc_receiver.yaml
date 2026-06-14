@@ -1,0 +1,18 @@
+# rc_receiver 配置
+# 遥控小车参数, 按需修改后执行:
+#   ./rc_receiver --port 9876 --dev /dev/tb6612 \
+#     --turn-ratio 0.0 \
+#     --left-scale 1.0 --right-scale 0.48 \
+#     --timeout 500
+---
+listen_port: 9876            # TCP 监听端口, PC 连接这个端口
+device: "/dev/tb6612"        # 电机驱动设备文件
+turn_ratio: 0.0              # 转弯时内侧轮速度比
+                             #   0.0 = 原地旋转 (内侧轮停转)
+                             #   0.5 = 内侧轮半速, 转弯更平滑
+left_scale: 1.0              # 左电机修正系数
+right_scale: 0.48            # 右电机修正系数
+                             #   校准: 直行时同时测量左右轮转速,
+                             #   调整使两轮实际速度一致
+max_command_percent: 100     # 最大指令百分比
+stop_timeout_ms: 500         # 无指令自动停车超时 (毫秒)

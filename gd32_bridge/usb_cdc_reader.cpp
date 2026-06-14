@@ -228,11 +228,34 @@ void UsbCdcReader::readLoop() {
 
             const uint8_t *payload = buf.data() + sizeof(UsbPacketHeader);
 
-            if (hdr.type == USB_PKT_TYPE_DET) {
+            if (hdr.type == USB_PKT_TYPE_LASER) {
+                // ── Laser distance packet ──
+                // Payload: uint16_t cm*100 (LE), range 0-3000 (0.00-30.00 cm)
+                if (hdr.payload_len >= 2) {
+                    uint16_t dist_cm_x100 = (uint16_t)payload[0]
+                                          | ((uint16_t)payload[1] << 8);
+                    // Push to queue
+                    std::vector<uint8_t> laser_frame;
+                    laser_frame.reserve(3);
+                    laser_frame.push_back(QUEUE_FRAME_LASER);
+                    laser_frame.push_back((uint8_t)(dist_cm_x100));
+                    laser_frame.push_back((uint8_t)(dist_cm_x100 >> 8));
+                    if (!queue_.push(laser_frame.data(), laser_frame.size()))
+                        frames_dropped++;
+                }
+                buf.erase(buf.begin(), buf.begin() + packet_size);
+                continue;
+
+            } else if (hdr.type == USB_PKT_TYPE_DET) {
                 // ── Detection / Event packet ──
                 switch (hdr.event) {
                 case USB_DET_EVENT_STOP:
                     cmd_pub_.publishStop();
+                    anomaly_pending = true;
+                    break;
+
+                case USB_DET_EVENT_CRACK_STOP:
+                    cmd_pub_.publishCrackStop();
                     anomaly_pending = true;
                     break;
 

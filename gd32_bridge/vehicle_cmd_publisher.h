@@ -22,6 +22,7 @@ public:
     void publishStop();
     void publishAdjust(float angle_delta_deg);
     void publishResume();
+    void publishCrackStop();
 
 private:
     int  sock_fd_ = -1;

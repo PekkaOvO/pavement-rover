@@ -120,6 +120,86 @@ void TcpSender::packFrame(const std::vector<uint8_t> &gd32_frame,
         }
     }
 
+    // ── Laser distance frame (queue marker QUEUE_FRAME_LASER) ──
+    // Format: [MARKER(1)][dist_cm_x100(2B,LE)]
+    // Packed as TCP TYPE_LASER: header(52B) + payload(2B,BE) + CRC(2B)
+    if (gd32_frame.size() >= 3 && gd32_frame[0] == QUEUE_FRAME_LASER) {
+        uint16_t dist_cm_x100 = (uint16_t)gd32_frame[1]
+                               | ((uint16_t)gd32_frame[2] << 8);
+        type = TcpProtocol::TYPE_LASER;
+        // Build tiny packet directly
+        pkt.resize(TcpProtocol::HEADER_SIZE + 2 + TcpProtocol::CRC_SIZE);
+        uint8_t *hdr = pkt.data();
+        hdr[TcpProtocol::MAGIC_OFF]     = 0xAA;
+        hdr[TcpProtocol::MAGIC_OFF + 1] = 0x55;
+        hdr[TcpProtocol::VERSION_OFF]   = TcpProtocol::VERSION;
+        hdr[TcpProtocol::TYPE_OFF]      = type;
+        // SEQ
+        hdr[TcpProtocol::SEQ_OFF]     = (uint8_t)(seq >> 24);
+        hdr[TcpProtocol::SEQ_OFF + 1] = (uint8_t)(seq >> 16);
+        hdr[TcpProtocol::SEQ_OFF + 2] = (uint8_t)(seq >> 8);
+        hdr[TcpProtocol::SEQ_OFF + 3] = (uint8_t)(seq);
+        // TS_MS
+        uint64_t ts_ms = (uint64_t)(gps.timestamp * 1000.0);
+        for (int i = 0; i < 8; ++i)
+            hdr[TcpProtocol::TS_MS_OFF + i] = (uint8_t)(ts_ms >> (56 - i * 8));
+        // LAT
+        uint64_t lat_bits;
+        memcpy(&lat_bits, &gps.lat_deg, sizeof(lat_bits));
+        for (int i = 0; i < 8; ++i)
+            hdr[TcpProtocol::LAT_OFF + i] = (uint8_t)(lat_bits >> (56 - i * 8));
+        // LON
+        uint64_t lon_bits;
+        memcpy(&lon_bits, &gps.lon_deg, sizeof(lon_bits));
+        for (int i = 0; i < 8; ++i)
+            hdr[TcpProtocol::LON_OFF + i] = (uint8_t)(lon_bits >> (56 - i * 8));
+        // COURSE
+        float course_f = (float)gps.course_deg;
+        uint32_t course_bits;
+        memcpy(&course_bits, &course_f, sizeof(course_bits));
+        hdr[TcpProtocol::COURSE_OFF]     = (uint8_t)(course_bits >> 24);
+        hdr[TcpProtocol::COURSE_OFF + 1] = (uint8_t)(course_bits >> 16);
+        hdr[TcpProtocol::COURSE_OFF + 2] = (uint8_t)(course_bits >> 8);
+        hdr[TcpProtocol::COURSE_OFF + 3] = (uint8_t)(course_bits);
+        // SPEED
+        float speed_f = (float)gps.speed_mps;
+        uint32_t speed_bits;
+        memcpy(&speed_bits, &speed_f, sizeof(speed_bits));
+        hdr[TcpProtocol::SPEED_OFF]     = (uint8_t)(speed_bits >> 24);
+        hdr[TcpProtocol::SPEED_OFF + 1] = (uint8_t)(speed_bits >> 16);
+        hdr[TcpProtocol::SPEED_OFF + 2] = (uint8_t)(speed_bits >> 8);
+        hdr[TcpProtocol::SPEED_OFF + 3] = (uint8_t)(speed_bits);
+        // HEIGHT
+        float height_f = (float)gps.height_m;
+        uint32_t height_bits;
+        memcpy(&height_bits, &height_f, sizeof(height_bits));
+        hdr[TcpProtocol::HEIGHT_OFF]     = (uint8_t)(height_bits >> 24);
+        hdr[TcpProtocol::HEIGHT_OFF + 1] = (uint8_t)(height_bits >> 16);
+        hdr[TcpProtocol::HEIGHT_OFF + 2] = (uint8_t)(height_bits >> 8);
+        hdr[TcpProtocol::HEIGHT_OFF + 3] = (uint8_t)(height_bits);
+        // CAM_ANGLE
+        uint32_t angle_bits = 0;
+        memcpy(&angle_bits, &cam_angle, sizeof(angle_bits));
+        hdr[TcpProtocol::CAM_ANGLE_OFF]     = (uint8_t)(angle_bits >> 24);
+        hdr[TcpProtocol::CAM_ANGLE_OFF + 1] = (uint8_t)(angle_bits >> 16);
+        hdr[TcpProtocol::CAM_ANGLE_OFF + 2] = (uint8_t)(angle_bits >> 8);
+        hdr[TcpProtocol::CAM_ANGLE_OFF + 3] = (uint8_t)(angle_bits);
+        // IMAGE_LEN = laser payload length
+        hdr[TcpProtocol::IMAGE_LEN_OFF]     = 0;
+        hdr[TcpProtocol::IMAGE_LEN_OFF + 1] = 0;
+        hdr[TcpProtocol::IMAGE_LEN_OFF + 2] = 0;
+        hdr[TcpProtocol::IMAGE_LEN_OFF + 3] = 2;
+        // Laser payload (big-endian uint16, cm*100)
+        hdr[TcpProtocol::HEADER_SIZE]     = (uint8_t)(dist_cm_x100 >> 8);
+        hdr[TcpProtocol::HEADER_SIZE + 1] = (uint8_t)(dist_cm_x100);
+        // CRC16
+        uint16_t crc = crc16Ccitt(hdr + TcpProtocol::VERSION_OFF,
+                                   TcpProtocol::HEADER_SIZE - TcpProtocol::VERSION_OFF + 2);
+        pkt[pkt.size() - 2] = (uint8_t)(crc >> 8);
+        pkt[pkt.size() - 1] = (uint8_t)(crc);
+        return;
+    }
+
 build:
 
     // Build TCP packet: header + [image] + crc16
@@ -238,6 +318,7 @@ bool TcpSender::connectSocket() {
 
 void TcpSender::sendLoop() {
     unsigned int retry_delay = 1; // seconds, exponential backoff
+    unsigned int heartbeat_ms = 1000; // GPS heartbeat interval
 
     while (running_) {
         if (fd_ < 0) {
@@ -256,15 +337,38 @@ void TcpSender::sendLoop() {
             std::cerr << "tcp_sender: connected" << std::endl;
         }
 
-        // Blocking pop from the frame queue
+        // Poll for a GD32 frame with ~1s timeout.
+        // If no GD32 frame arrives, send a GPS heartbeat (TYPE_NO_IMAGE)
+        // so CarView2 gets position updates even without camera/laser data.
         std::vector<uint8_t> gd32_frame;
-        if (!queue_.pop(gd32_frame)) {
-            // Shutdown requested or queue closed
-            break;
+        bool got_frame = false;
+        auto deadline = std::chrono::steady_clock::now()
+                        + std::chrono::milliseconds(heartbeat_ms);
+        while (!got_frame && running_ &&
+               std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            if (queue_.try_pop(gd32_frame))
+                got_frame = true;
         }
 
-        // Get latest GPS state
+        if (!running_)
+            break;
+
         GpsState gps = gps_.latest();
+
+        if (!got_frame && !gps.has_fix) {
+            // No GPS source yet and no GD32 frame — nothing to send this cycle.
+            // Print once every 5s so user knows the state.
+            static int diag = 0;
+            if (++diag % 5 == 0)
+                std::cerr << "tcp_sender: waiting for GPS data (start KF-GINS-GnssPathControl)"
+                          << std::endl;
+            continue;
+        }
+
+        // For heartbeat (no GD32 frame), use an empty frame -> packFrame builds TYPE_NO_IMAGE
+        if (!got_frame)
+            gd32_frame.clear();
 
         // Pack into TCP protocol
         std::vector<uint8_t> tcp_pkt;

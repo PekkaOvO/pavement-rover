@@ -691,6 +691,30 @@ bool loadPathControlConfig(const std::string &yaml_path, PathControlConfig &conf
             config.has_goal = true;
         }
 
+        // Support multiple goals: path_control.goals: [[lat,lon], [lat,lon], ...]
+        if (node["goals"] && node["goals"].IsSequence()) {
+            for (size_t i = 0; i < node["goals"].size(); ++i) {
+                const YAML::Node &g = node["goals"][i];
+                if (g.IsSequence() && g.size() >= 2) {
+                    std::vector<double> values = g.as<std::vector<double>>();
+                    GeoPoint pt;
+                    pt.lat_deg = values[0];
+                    pt.lon_deg = values[1];
+                    config.goals.push_back(pt);
+                } else if (g["lat"] && g["lon"]) {
+                    GeoPoint pt;
+                    pt.lat_deg = g["lat"].as<double>();
+                    pt.lon_deg = g["lon"].as<double>();
+                    config.goals.push_back(pt);
+                }
+            }
+            if (!config.goals.empty()) {
+                config.has_goals = true;
+                config.goal = config.goals.back();
+                config.has_goal = true;
+            }
+        }
+
         readRuntimeOptions(node, config.runtime);
         readControlParams(node, config.control);
         readGnssOnlyParams(node, config.gnss_only);
@@ -703,8 +727,8 @@ bool loadPathControlConfig(const std::string &yaml_path, PathControlConfig &conf
         return false;
     }
 
-    if (!config.has_goal) {
-        error = "missing path_control.goal or path_control.goal_lat/goal_lon";
+    if (!config.has_goal && !config.has_goals) {
+        error = "missing path_control.goal or path_control.goals";
         return false;
     }
     if (config.control.path_step_m < 0.02) {
@@ -741,8 +765,8 @@ bool loadPathControlConfig(const std::string &yaml_path, PathControlConfig &conf
     return true;
 }
 
-PathController::PathController(const GeoPoint &goal, const ControlParams &params)
-    : goal_(goal), params_(params) {}
+PathController::PathController(const std::vector<GeoPoint> &goals, const ControlParams &params)
+    : goals_(goals), params_(params) {}
 
 bool PathController::update(const NavOutput &nav, RobotState &state, ControlOutput &output, std::string &error) {
     const double yaw_rad = headingDegToYawRad(nav.yaw_deg);
@@ -787,33 +811,55 @@ int PathController::pathSize() const {
     return static_cast<int>(path_.size());
 }
 
+int PathController::goalsCount() const {
+    return static_cast<int>(goals_.size());
+}
+
+int PathController::currentGoalIndex() const {
+    return current_goal_index_;
+}
+
 bool PathController::initializePath(const GeoPoint &origin, std::string &error) {
     origin_ = origin;
-    goal_local_ = geoToLocalMeters(origin_, goal_);
-    const Point2d start;
-    const double total = pointDistance(start, goal_local_);
-    const int count = std::max(1, static_cast<int>(std::ceil(total / params_.path_step_m)));
 
-    path_.resize(static_cast<size_t>(count) + 1U);
-    for (int i = 0; i <= count; ++i) {
-        const double t = static_cast<double>(i) / static_cast<double>(count);
-        path_[i].x = start.x + (goal_local_.x - start.x) * t;
-        path_[i].y = start.y + (goal_local_.y - start.y) * t;
+    path_.clear();
+    Point2d start;
+
+    for (size_t gi = 0; gi < goals_.size(); ++gi) {
+        const Point2d end = geoToLocalMeters(origin_, goals_[gi]);
+        const double total = pointDistance(start, end);
+        if (total < 1e-6) {
+            // Skip zero-length segments
+            start = end;
+            continue;
+        }
+
+        const int count = std::max(1, static_cast<int>(std::ceil(total / params_.path_step_m)));
+        const size_t base = path_.size();
+        path_.resize(base + static_cast<size_t>(count) + 1U);
+
+        for (int i = 0; i <= count; ++i) {
+            const double t = static_cast<double>(i) / static_cast<double>(count);
+            path_[base + static_cast<size_t>(i)].x = start.x + (end.x - start.x) * t;
+            path_[base + static_cast<size_t>(i)].y = start.y + (end.y - start.y) * t;
+        }
+        start = end;
     }
 
     if (path_.empty()) {
-        error = "failed to create path";
+        error = "failed to create path: all waypoints are at the same location";
         return false;
     }
 
+    goal_local_ = geoToLocalMeters(origin_, goals_.back());
     ready_ = true;
     return true;
 }
 
-GnssPathController::GnssPathController(const GeoPoint &goal,
+GnssPathController::GnssPathController(const std::vector<GeoPoint> &goals,
                                        const ControlParams &control_params,
                                        const GnssOnlyParams &gnss_params)
-    : controller_(goal, control_params), goal_(goal), params_(gnss_params) {}
+    : controller_(goals, control_params), goals_(goals), params_(gnss_params) {}
 
 bool GnssPathController::update(const GnssPosition &fix,
                                 RobotState &state,
@@ -825,10 +871,12 @@ bool GnssPathController::update(const GnssPosition &fix,
     } else {
         local.x = 0.0;
         local.y = 0.0;
-        const Point2d goal_local = geoToLocalMeters(fix.position, goal_);
-        if (pointDistance(local, goal_local) > 1e-6) {
-            yaw_rad_ = std::atan2(goal_local.y - local.y, goal_local.x - local.x);
-            has_yaw_ = true;
+        if (!goals_.empty()) {
+            const Point2d goal_local = geoToLocalMeters(fix.position, goals_.back());
+            if (pointDistance(local, goal_local) > 1e-6) {
+                yaw_rad_ = std::atan2(goal_local.y - local.y, goal_local.x - local.x);
+                has_yaw_ = true;
+            }
         }
     }
 
@@ -867,7 +915,7 @@ bool GnssPathController::update(const GnssPosition &fix,
 
     if (!has_yaw_) {
         const Point2d goal_local = controller_.isReady() ? controller_.goalLocal()
-                                                        : geoToLocalMeters(fix.position, goal_);
+                                                        : (goals_.empty() ? Point2d{} : geoToLocalMeters(fix.position, goals_.back()));
         yaw_rad_ = std::atan2(goal_local.y - local.y, goal_local.x - local.x);
         has_yaw_ = true;
     }

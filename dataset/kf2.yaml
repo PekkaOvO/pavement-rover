@@ -50,6 +50,23 @@ path_control:
   invert_left: false                  #是否反转左轮方向。
   invert_right: false                 #是否反转右轮方向。
 
+  obstacle_avoid:
+    forward_speed_percent: 20      # 避障阶段的前进基准速度百分比
+    backup_duration_s: 1.5         # 后退时长
+    backup_servo_angle: -30        # 后退时前轮舵机角度（负=左）
+    backup_left_coeff: -0.75       # 后退左轮系数（负=后退）
+    backup_right_coeff: -1.25      # 后退右轮系数
+    evade_duration_s: 2.0          # 前进绕行时长
+    evade_servo_angle: 30          # 绕行时前轮舵机角度（正=右）
+    evade_left_coeff: 1.5          # 绕行左轮系数
+    evade_right_coeff: 0.75        # 绕行右轮系数
+    straight_duration_s: 3.0       # 直行时长
+    straight_coeff: 1.0            # 直行系数
+    turn_left_duration_s: 1.5      # 左转时长
+    turn_left_servo_angle: -30     # 左转前轮舵机角度
+    turn_left_left_coeff: 0.75     # 左转左轮系数
+    turn_left_right_coeff: 1.5     # 左转右轮系数
+
   control:
     target_speed_mps: 0.35        # 目标前进速度，单位 m/s
     min_speed_mps: 0.12           # 靠近目标点减速时的最低速度。避免速度太小电机不动。

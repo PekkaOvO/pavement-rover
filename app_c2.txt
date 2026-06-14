@@ -199,6 +199,7 @@
 #define USB_DET_EVENT_STOP                       0x01U
 #define USB_DET_EVENT_X_DELTA                    0x02U
 #define USB_DET_EVENT_FLOW_END                   0x03U
+#define USB_DET_EVENT_CRACK_STOP                 0x04U
 
 #define USB_CAMERA_FRAME_ADDR                    CAMERA_SHOW_FRAME_ADDR
 #define USB_CAMERA_WIDTH                         CAMERA_SHOW_WIDTH
@@ -1291,7 +1292,7 @@ static void app_flow_on_laser_tick(void)
     case APP_FLOW_STATE_LASER_MONITORING:
         if(0U != app_laser_update_crack_detect()) {
             if(0U == g_app_flow_crack_stop_sent) {
-                usb_det_request_event(USB_DET_EVENT_STOP);
+                usb_det_request_event(USB_DET_EVENT_CRACK_STOP);
                 g_app_flow_crack_stop_sent = 1U;
             }
 
