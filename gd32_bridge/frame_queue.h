@@ -17,11 +17,12 @@ public:
     explicit FrameQueue(size_t max_frames = 32)
         : max_frames_(max_frames) {}
 
-    // Push a complete frame. Returns false if queue is full.
+    // Push a complete frame. When full, drops the oldest frame to make room
+    // so the TCP sender always has the latest data.
     bool push(const uint8_t *data, size_t len) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (queue_.size() >= max_frames_)
-            return false;
+            queue_.pop_front();  // drop oldest to keep pipeline fresh
         queue_.emplace_back(data, data + len);
         cv_.notify_one();
         return true;

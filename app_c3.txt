@@ -1,0 +1,1097 @@
+/*!
+    \file    app.c
+    \brief   CDC link test: OV5640 RGB565 + AI result + TOFSense-F distance
+
+    Purpose:
+        This version is only used to test whether USB CDC packets are smooth.
+
+        It does NOT run the full process:
+            no STOP sequence,
+            no gimbal centering sequence,
+            no X_DELTA process trigger,
+            no laser baseline,
+            no crack delta decision,
+            no CRACK_STOP,
+            no FLOW_END.
+
+        It only sends three kinds of data continuously:
+
+        1. IMAGE packet
+            type  = 0x01
+            event = 0x01
+            payload = RGB565 image chunk
+
+        2. AI detection result packet
+            type  = 0x02
+            event = 0x00
+            payload_len = 28 if target exists
+            payload_len = 0  if no target
+            payload = usb_det_object_t
+
+        3. LASER distance packet
+            type  = 0x03
+            event = 0x00
+            payload_len = 2
+            payload = uint16_t distance_cm_x100, little-endian
+
+    Notes:
+        - CDC is a byte stream. Receiver must parse by magic + header + payload_len.
+        - magic value is 0xAA55, wire bytes are 55 AA.
+*/
+
+#include "gd32h7xx.h"
+#include "drv_usb_hw.h"
+#include "cdc_acm_core.h"
+#include "exmc_sdram.h"
+#include "dci_ov5640.h"
+#include "systick.h"
+#include "ai_model.h"
+#include "tofsense_uart.h"
+
+#include <stdint.h>
+#include <string.h>
+
+#ifndef MPU_ACCESS_BUFFERABLE
+#define MPU_ACCESS_BUFFERABLE                    ((uint8_t)1U)
+#endif
+
+#ifndef MPU_ACCESS_CACHEABLE
+#define MPU_ACCESS_CACHEABLE                     ((uint8_t)1U)
+#endif
+
+/* ============================================================
+   App mode
+   ============================================================ */
+
+#define APP_TEST_USB_FAKE_IMAGE_ONLY             0U
+#define APP_TEST_OV5640_FREEZE_FRAME_ONLY        0U
+
+#define APP_AI_ENABLE                            1U
+#define APP_AI_RUN_INTERVAL                      2U
+#define APP_AI_CONF_MIN                          0.30f
+
+#define APP_LASER_ENABLE                         1U
+#define APP_LASER_USB_REPORT_ENABLE              1U
+#define APP_LASER_USB_REPORT_INTERVAL_MS         50U
+
+#if ((APP_AI_ENABLE != 0U) && \
+     (!APP_TEST_USB_FAKE_IMAGE_ONLY) && \
+     (!APP_TEST_OV5640_FREEZE_FRAME_ONLY))
+#define APP_ENABLE_AI_USB_RESULT                 1U
+#else
+#define APP_ENABLE_AI_USB_RESULT                 0U
+#endif
+
+/* ============================================================
+   USB config
+   ============================================================ */
+
+#define USB_TX_PACE_DELAY_MS                     0U
+#define USB_BUSY_DROP_THRESHOLD                  200000U
+#define USB_TX_BUFFER_COUNT                      2U
+#define APP_DCACHE_LINE_SIZE                     32U
+
+/* ============================================================
+   Timebase config
+   ============================================================ */
+
+#define APP_TIMEBASE_TIMER4_PRESCALER            299U
+#define APP_TIMEBASE_US_PER_MS                   1000U
+
+/* ============================================================
+   Laser config
+   ============================================================ */
+
+#define APP_LASER_VALID_DISTANCE_MIN_MM          20
+#define APP_LASER_VALID_DISTANCE_MAX_MM          2000
+
+/*
+    i.MX6ULL protocol asks for:
+        uint16_t distance_cm_x100
+        range 0-3000 means 0.00-30.00 cm.
+    If your radar mounting distance can be larger than 30cm, increase this
+    only after confirming the i.MX6ULL side also accepts the larger value.
+*/
+#define APP_LASER_USB_DIST_CM_X100_MAX           3000U
+
+/* ============================================================
+   USB protocol
+   ============================================================ */
+
+#define USB_PKT_MAGIC                            0xAA55U
+
+#define USB_PKT_TYPE_IMAGE                       0x01U
+#define USB_PKT_TYPE_DET                         0x02U
+#define USB_PKT_TYPE_LASER                       0x03U
+
+#define USB_IMG_EVENT_RGB565                     0x01U
+
+/*
+    CDC link-test version:
+        Only event=0x00 is used for AI detection result.
+        Flow events are not sent in this version.
+*/
+#define USB_DET_EVENT_NONE                       0x00U
+#define USB_DET_EVENT_STOP                       0x01U
+#define USB_DET_EVENT_X_DELTA                    0x02U
+#define USB_DET_EVENT_FLOW_END                   0x03U
+#define USB_DET_EVENT_CRACK_STOP                 0x04U
+
+#define USB_LASER_PAYLOAD_LEN                    2U
+
+#define USB_CAMERA_FRAME_ADDR                    CAMERA_SHOW_FRAME_ADDR
+#define USB_CAMERA_WIDTH                         CAMERA_SHOW_WIDTH
+#define USB_CAMERA_HEIGHT                        CAMERA_SHOW_HEIGHT
+
+usb_core_driver cdc_acm;
+extern uint8_t cdc_acm_user_send(usb_core_driver *pudev, uint8_t *buf, uint32_t len);
+
+typedef struct __attribute__((packed)) {
+    uint16_t magic;
+    uint8_t  type;
+    uint8_t  event;
+    uint16_t width;
+    uint16_t height;
+    uint16_t packet_id;
+    uint16_t packet_total;
+    uint16_t payload_len;
+    uint16_t reserved;
+} usb_packet_header_t;
+
+typedef struct __attribute__((packed)) {
+    uint16_t cls_index;
+    uint16_t object_id;
+    uint16_t conf_q10000;
+    uint16_t reserved;
+    char name[16];
+    float x_angle_delta_deg;
+} usb_det_object_t;
+
+typedef char usb_packet_header_size_check[(sizeof(usb_packet_header_t) == 16U) ? 1 : -1];
+typedef char usb_det_object_size_check[(sizeof(usb_det_object_t) == 28U) ? 1 : -1];
+
+/* ============================================================
+   Local prototypes
+   ============================================================ */
+
+static void cache_enable(void);
+static void mpu_config(void);
+static void app_usb_init(void);
+static void camera_dma_nvic_config(void);
+static void camera_capture_stop(void);
+static void app_dcache_clean_by_addr(uint32_t addr, uint32_t size);
+
+static void app_timebase_timer4_config(void);
+static uint32_t app_timebase_now_us(void);
+static uint32_t app_timebase_elapsed_ms(uint32_t start_us);
+
+static void fill_fake_rgb565_image(uint32_t frame_addr);
+
+static uint8_t usb_tx_is_idle(void);
+static void usb_camera_tx_start(uint32_t frame_addr);
+static void usb_tx_step(void);
+static uint16_t usb_camera_get_payload_max(uint16_t header_size);
+static void usb_drop_current_frame_and_restart(void);
+
+static void usb_det_request_ai_result(void);
+static uint8_t usb_det_tx_step(void);
+static void usb_det_build_packet(uint8_t *packet, uint32_t *send_len);
+static uint16_t usb_det_conf_to_u16(float conf);
+static void usb_det_copy_name(char dst[16], const char *src);
+static uint8_t usb_det_fill_selected_object(usb_det_object_t *obj_payload);
+
+static void usb_laser_request_distance(uint16_t dist_cm_x100);
+static uint8_t usb_laser_tx_step(void);
+
+static uint8_t app_ai_select_highest_conf(uint32_t *best_idx);
+
+static void app_laser_init(void);
+static void app_laser_poll(void);
+static uint8_t app_laser_distance_is_valid(int32_t distance_mm);
+static uint16_t app_laser_distance_mm_to_cm_x100(int32_t distance_mm);
+static void app_laser_usb_report_tick(void);
+
+/* ============================================================
+   USB state
+   ============================================================ */
+
+__ALIGN_BEGIN static uint8_t usb_tx_packet[USB_TX_BUFFER_COUNT][USB_CDC_DATA_PACKET_SIZE] __ALIGN_END;
+__ALIGN_BEGIN static uint8_t usb_det_packet[USB_CDC_DATA_PACKET_SIZE] __ALIGN_END;
+__ALIGN_BEGIN static uint8_t usb_laser_packet[sizeof(usb_packet_header_t) + USB_LASER_PAYLOAD_LEN] __ALIGN_END;
+
+static uint8_t  g_usb_camera_tx_active = 0U;
+static uint8_t  g_usb_det_tx_pending = 0U;
+static uint8_t  g_usb_laser_tx_pending = 0U;
+
+static uint32_t g_usb_camera_frame_id = 0U;
+static uint16_t g_usb_camera_chunk_id = 0U;
+static uint32_t g_usb_camera_src_addr = USB_CAMERA_FRAME_ADDR;
+static uint8_t  g_usb_tx_buf_idx = 0U;
+static uint32_t g_usb_same_chunk_busy_count = 0U;
+
+static uint32_t g_ai_frame_divider = 0U;
+
+static int32_t  g_laser_latest_distance_mm = 0;
+static uint8_t  g_laser_latest_valid = 0U;
+static uint32_t g_laser_last_update_us = 0U;
+static uint32_t g_laser_usb_last_send_us = 0U;
+static uint16_t g_usb_laser_pending_dist_cm_x100 = 0U;
+
+/* ============================================================
+   Timebase
+   ============================================================ */
+
+static void app_timebase_timer4_config(void)
+{
+    timer_parameter_struct timer_initpara;
+
+    rcu_periph_clock_enable(RCU_TIMER4);
+    timer_deinit(TIMER4);
+    timer_struct_para_init(&timer_initpara);
+
+    timer_initpara.prescaler = APP_TIMEBASE_TIMER4_PRESCALER;
+    timer_initpara.counterdirection = TIMER_COUNTER_UP;
+    timer_initpara.period = 0xFFFFFFFFU;
+    timer_initpara.clockdivision = TIMER_CKDIV_DIV1;
+
+    timer_init(TIMER4, &timer_initpara);
+    timer_enable(TIMER4);
+}
+
+static uint32_t app_timebase_now_us(void)
+{
+    return timer_counter_read(TIMER4);
+}
+
+static uint32_t app_timebase_elapsed_ms(uint32_t start_us)
+{
+    uint32_t now_us;
+    uint32_t diff_us;
+
+    now_us = app_timebase_now_us();
+    diff_us = now_us - start_us;
+
+    return diff_us / APP_TIMEBASE_US_PER_MS;
+}
+
+/* ============================================================
+   Generic helpers
+   ============================================================ */
+
+static void app_dcache_clean_by_addr(uint32_t addr, uint32_t size)
+{
+    uint32_t aligned_addr;
+    uint32_t aligned_size;
+
+    if(0U == size) {
+        return;
+    }
+
+    aligned_addr = addr & ~(uint32_t)(APP_DCACHE_LINE_SIZE - 1U);
+    aligned_size = size + (addr - aligned_addr);
+    aligned_size = (aligned_size + (APP_DCACHE_LINE_SIZE - 1U)) &
+                   ~(uint32_t)(APP_DCACHE_LINE_SIZE - 1U);
+
+    __DSB();
+    SCB_CleanDCache_by_Addr((uint32_t *)aligned_addr, (int32_t)aligned_size);
+    __DSB();
+    __ISB();
+}
+
+static void camera_capture_stop(void)
+{
+    dci_capture_disable();
+    dma_channel_disable(DMA1, DMA_CH7);
+    dma_interrupt_disable(DMA1, DMA_CH7, DMA_INT_FTF);
+    dma_interrupt_flag_clear(DMA1, DMA_CH7, DMA_INT_FLAG_FTF);
+}
+
+/* ============================================================
+   Laser helpers
+   ============================================================ */
+
+static void app_laser_init(void)
+{
+    tofsense_uart_init();
+
+    g_laser_latest_distance_mm = 0;
+    g_laser_latest_valid = 0U;
+    g_laser_last_update_us = 0U;
+    g_laser_usb_last_send_us = app_timebase_now_us();
+    g_usb_laser_pending_dist_cm_x100 = 0U;
+}
+
+static uint8_t app_laser_distance_is_valid(int32_t distance_mm)
+{
+    if(distance_mm < (int32_t)APP_LASER_VALID_DISTANCE_MIN_MM) {
+        return 0U;
+    }
+
+    if(distance_mm > (int32_t)APP_LASER_VALID_DISTANCE_MAX_MM) {
+        return 0U;
+    }
+
+    return 1U;
+}
+
+static uint16_t app_laser_distance_mm_to_cm_x100(int32_t distance_mm)
+{
+    uint32_t dist_cm_x100;
+
+    if(distance_mm <= 0) {
+        return 0U;
+    }
+
+    /*
+        1 mm = 0.1 cm
+        cm * 100 = mm * 10
+    */
+    dist_cm_x100 = (uint32_t)distance_mm * 10U;
+
+    if(dist_cm_x100 > APP_LASER_USB_DIST_CM_X100_MAX) {
+        dist_cm_x100 = APP_LASER_USB_DIST_CM_X100_MAX;
+    }
+
+    return (uint16_t)dist_cm_x100;
+}
+
+static void app_laser_usb_report_tick(void)
+{
+#if (APP_LASER_ENABLE && APP_LASER_USB_REPORT_ENABLE)
+    uint16_t dist_cm_x100;
+
+    if(0U == g_laser_latest_valid) {
+        return;
+    }
+
+    if(app_timebase_elapsed_ms(g_laser_usb_last_send_us) <
+       APP_LASER_USB_REPORT_INTERVAL_MS) {
+        return;
+    }
+
+    g_laser_usb_last_send_us = app_timebase_now_us();
+
+    dist_cm_x100 = app_laser_distance_mm_to_cm_x100(g_laser_latest_distance_mm);
+    usb_laser_request_distance(dist_cm_x100);
+#endif
+}
+
+static void app_laser_poll(void)
+{
+#if APP_LASER_ENABLE
+    tofsense_uart_data_t data;
+
+    tofsense_uart_poll();
+
+    if(0U != tofsense_uart_get_latest(&data)) {
+        if((0U != data.valid) &&
+           (0U != app_laser_distance_is_valid(data.distance_mm))) {
+            g_laser_latest_distance_mm = data.distance_mm;
+            g_laser_latest_valid = 1U;
+            g_laser_last_update_us = app_timebase_now_us();
+        } else {
+            g_laser_latest_valid = 0U;
+        }
+    }
+
+    app_laser_usb_report_tick();
+#endif
+}
+
+/* ============================================================
+   AI helpers
+   ============================================================ */
+
+static uint8_t app_ai_select_highest_conf(uint32_t *best_idx)
+{
+#if (APP_ENABLE_AI_USB_RESULT && defined(OD_MODEL))
+    uint32_t i;
+    uint32_t obj_num;
+    uint32_t found;
+    float conf;
+    float best_conf;
+    uint32_t best;
+
+    if(best_idx == 0) {
+        return 0U;
+    }
+
+    obj_num = ai_get_obj_num();
+
+    if(0U == obj_num) {
+        return 0U;
+    }
+
+    found = 0U;
+    best = 0U;
+    best_conf = APP_AI_CONF_MIN;
+
+    for(i = 0U; i < obj_num; i++) {
+        conf = ai_get_obj_conf(i);
+
+        if(conf < APP_AI_CONF_MIN) {
+            continue;
+        }
+
+        if((0U == found) || (conf > best_conf)) {
+            found = 1U;
+            best_conf = conf;
+            best = i;
+        }
+    }
+
+    if(0U == found) {
+        return 0U;
+    }
+
+    *best_idx = best;
+    return 1U;
+#else
+    (void)best_idx;
+    return 0U;
+#endif
+}
+
+/* ============================================================
+   USB image transmit
+   ============================================================ */
+
+static uint8_t usb_tx_is_idle(void)
+{
+    if((0U == g_usb_camera_tx_active) &&
+       (0U == g_usb_det_tx_pending) &&
+       (0U == g_usb_laser_tx_pending)) {
+        return 1U;
+    }
+
+    return 0U;
+}
+
+static void usb_camera_tx_start(uint32_t frame_addr)
+{
+    g_usb_camera_src_addr = frame_addr;
+    g_usb_camera_chunk_id = 0U;
+    g_usb_camera_tx_active = 1U;
+    g_usb_same_chunk_busy_count = 0U;
+    g_usb_tx_buf_idx = 0U;
+}
+
+static uint16_t usb_camera_get_payload_max(uint16_t header_size)
+{
+    uint16_t payload_max;
+
+    payload_max = (uint16_t)(USB_CDC_DATA_PACKET_SIZE - header_size);
+
+    if(0U != (payload_max & 1U)) {
+        payload_max--;
+    }
+
+    /*
+        Avoid always filling the CDC endpoint packet exactly.
+        This follows the style of the previous project version.
+    */
+    if((uint16_t)(payload_max + header_size) >= USB_CDC_DATA_PACKET_SIZE) {
+        if(payload_max >= 2U) {
+            payload_max = (uint16_t)(payload_max - 2U);
+        }
+    }
+
+    return payload_max;
+}
+
+static void usb_drop_current_frame_and_restart(void)
+{
+    g_usb_same_chunk_busy_count = 0U;
+    g_usb_camera_chunk_id = 0U;
+    g_usb_camera_tx_active = 0U;
+    g_usb_det_tx_pending = 0U;
+    g_usb_laser_tx_pending = 0U;
+    g_usb_camera_frame_id++;
+
+#if (!APP_TEST_USB_FAKE_IMAGE_ONLY) && (!APP_TEST_OV5640_FREEZE_FRAME_ONLY)
+    dci_ov5640_capture_restart();
+#endif
+}
+
+static void usb_tx_step(void)
+{
+    usb_packet_header_t *hdr;
+    uint8_t *packet;
+    uint16_t header_size;
+    uint16_t payload_max;
+    uint32_t image_total_bytes;
+    uint16_t chunk_total;
+    uint32_t start_byte;
+    uint32_t remain;
+    uint16_t payload_len;
+    uint8_t *payload;
+    uint8_t *src;
+    uint32_t send_len;
+    uint8_t ret;
+
+    if((0U == g_usb_camera_tx_active) &&
+       (0U == g_usb_det_tx_pending) &&
+       (0U == g_usb_laser_tx_pending)) {
+        return;
+    }
+
+    if(USBD_CONFIGURED != cdc_acm.dev.cur_status) {
+        g_usb_camera_tx_active = 0U;
+        g_usb_det_tx_pending = 0U;
+        g_usb_laser_tx_pending = 0U;
+
+#if (!APP_TEST_USB_FAKE_IMAGE_ONLY) && (!APP_TEST_OV5640_FREEZE_FRAME_ONLY)
+        dci_ov5640_capture_restart();
+#endif
+        return;
+    }
+
+#if APP_ENABLE_AI_USB_RESULT
+    /*
+        Priority 1:
+            AI result packet.
+        It is short, so send it before image chunks.
+    */
+    if(0U != g_usb_det_tx_pending) {
+        if(0U == usb_det_tx_step()) {
+            g_usb_same_chunk_busy_count++;
+
+            if(g_usb_same_chunk_busy_count > USB_BUSY_DROP_THRESHOLD) {
+                usb_drop_current_frame_and_restart();
+            }
+            return;
+        }
+
+        g_usb_same_chunk_busy_count = 0U;
+        return;
+    }
+#endif
+
+#if (APP_LASER_ENABLE && APP_LASER_USB_REPORT_ENABLE)
+    /*
+        Priority 2:
+            Laser distance packet.
+        It is also short and can be inserted between image chunks.
+    */
+    if(0U != g_usb_laser_tx_pending) {
+        if(0U == usb_laser_tx_step()) {
+            g_usb_same_chunk_busy_count++;
+
+            if(g_usb_same_chunk_busy_count > USB_BUSY_DROP_THRESHOLD) {
+                usb_drop_current_frame_and_restart();
+            }
+            return;
+        }
+
+        g_usb_same_chunk_busy_count = 0U;
+        return;
+    }
+#endif
+
+    /*
+        Priority 3:
+            Image chunk packet.
+    */
+    if(0U == g_usb_camera_tx_active) {
+        return;
+    }
+
+    packet = usb_tx_packet[g_usb_tx_buf_idx];
+    hdr = (usb_packet_header_t *)packet;
+
+    header_size = (uint16_t)sizeof(usb_packet_header_t);
+    payload_max = usb_camera_get_payload_max(header_size);
+
+    image_total_bytes = USB_CAMERA_WIDTH * USB_CAMERA_HEIGHT * 2U;
+    chunk_total = (uint16_t)((image_total_bytes + payload_max - 1U) / payload_max);
+    start_byte = (uint32_t)g_usb_camera_chunk_id * payload_max;
+
+    if(start_byte >= image_total_bytes) {
+        g_usb_camera_chunk_id = 0U;
+        g_usb_camera_tx_active = 0U;
+        return;
+    }
+
+    remain = image_total_bytes - start_byte;
+    payload_len = (remain > (uint32_t)payload_max) ? payload_max : (uint16_t)remain;
+    payload = packet + header_size;
+    src = (uint8_t *)(g_usb_camera_src_addr + start_byte);
+
+    hdr->magic = USB_PKT_MAGIC;
+    hdr->type = USB_PKT_TYPE_IMAGE;
+    hdr->event = USB_IMG_EVENT_RGB565;
+    hdr->width = USB_CAMERA_WIDTH;
+    hdr->height = USB_CAMERA_HEIGHT;
+    hdr->packet_id = g_usb_camera_chunk_id;
+    hdr->packet_total = chunk_total;
+    hdr->payload_len = payload_len;
+    hdr->reserved = 0U;
+
+    memcpy(payload, src, payload_len);
+
+    send_len = (uint32_t)header_size + payload_len;
+    app_dcache_clean_by_addr((uint32_t)packet, send_len);
+
+    ret = cdc_acm_user_send(&cdc_acm, packet, send_len);
+
+    if(0U == ret) {
+        g_usb_same_chunk_busy_count = 0U;
+        g_usb_tx_buf_idx ^= 1U;
+        g_usb_camera_chunk_id++;
+
+        if(g_usb_camera_chunk_id >= chunk_total) {
+            g_usb_camera_chunk_id = 0U;
+            g_usb_camera_frame_id++;
+            g_usb_camera_tx_active = 0U;
+
+#if (!APP_TEST_USB_FAKE_IMAGE_ONLY) && (!APP_TEST_OV5640_FREEZE_FRAME_ONLY)
+            dci_ov5640_capture_restart();
+#endif
+        }
+
+#if USB_TX_PACE_DELAY_MS > 0U
+        delay_1ms(USB_TX_PACE_DELAY_MS);
+#endif
+    } else {
+        g_usb_same_chunk_busy_count++;
+
+        if(g_usb_same_chunk_busy_count > USB_BUSY_DROP_THRESHOLD) {
+            usb_drop_current_frame_and_restart();
+        }
+    }
+}
+
+/* ============================================================
+   USB AI detection packet
+   ============================================================ */
+
+static void usb_det_request_ai_result(void)
+{
+#if APP_ENABLE_AI_USB_RESULT
+    /*
+        CDC test version:
+            Always send type=0x02,event=0x00.
+            If current AI result has a valid object, payload is 28 bytes.
+            If no valid object exists, payload_len is 0.
+    */
+    g_usb_det_tx_pending = 1U;
+#endif
+}
+
+static uint16_t usb_det_conf_to_u16(float conf)
+{
+    if(conf < 0.0f) {
+        conf = 0.0f;
+    }
+    if(conf > 1.0f) {
+        conf = 1.0f;
+    }
+    return (uint16_t)(conf * 10000.0f + 0.5f);
+}
+
+static void usb_det_copy_name(char dst[16], const char *src)
+{
+    uint32_t i;
+
+    for(i = 0U; i < 16U; i++) {
+        dst[i] = 0;
+    }
+
+    if(src == 0) {
+        return;
+    }
+
+    for(i = 0U; i < 15U; i++) {
+        if(src[i] == '\0') {
+            break;
+        }
+        dst[i] = src[i];
+    }
+}
+
+static uint8_t usb_det_fill_selected_object(usb_det_object_t *obj_payload)
+{
+#if (APP_ENABLE_AI_USB_RESULT && defined(OD_MODEL))
+    uint32_t best_idx;
+
+    if(obj_payload == 0) {
+        return 0U;
+    }
+
+    if(0U == app_ai_select_highest_conf(&best_idx)) {
+        return 0U;
+    }
+
+    obj_payload->cls_index = (uint16_t)results[best_idx].cls_index;
+    obj_payload->object_id = 0U;
+    obj_payload->conf_q10000 = usb_det_conf_to_u16(ai_get_obj_conf(best_idx));
+    obj_payload->reserved = 0U;
+    usb_det_copy_name(obj_payload->name, ai_get_obj_name(best_idx));
+
+    /*
+        CDC link-test version:
+            No gimbal PID is used.
+            Keep this field as 0.0f so that receiver format remains the same.
+    */
+    obj_payload->x_angle_delta_deg = 0.0f;
+
+    return 1U;
+#else
+    (void)obj_payload;
+    return 0U;
+#endif
+}
+
+static void usb_det_build_packet(uint8_t *packet, uint32_t *send_len)
+{
+    usb_packet_header_t *hdr;
+    usb_det_object_t *obj_payload;
+    uint16_t payload_len;
+    uint8_t has_payload;
+
+    hdr = (usb_packet_header_t *)packet;
+    obj_payload = (usb_det_object_t *)(packet + sizeof(usb_packet_header_t));
+
+    payload_len = 0U;
+    has_payload = usb_det_fill_selected_object(obj_payload);
+
+    if(0U != has_payload) {
+        payload_len = (uint16_t)sizeof(usb_det_object_t);
+    }
+
+    hdr->magic = USB_PKT_MAGIC;
+    hdr->type = USB_PKT_TYPE_DET;
+    hdr->event = USB_DET_EVENT_NONE;
+    hdr->width = USB_CAMERA_WIDTH;
+    hdr->height = USB_CAMERA_HEIGHT;
+    hdr->packet_id = 0U;
+    hdr->packet_total = 0U;
+    hdr->payload_len = payload_len;
+    hdr->reserved = 0U;
+
+    *send_len = (uint32_t)sizeof(usb_packet_header_t) + hdr->payload_len;
+}
+
+static uint8_t usb_det_tx_step(void)
+{
+    uint32_t send_len;
+    uint8_t ret;
+
+    if(0U == g_usb_det_tx_pending) {
+        return 1U;
+    }
+
+    usb_det_build_packet(usb_det_packet, &send_len);
+    app_dcache_clean_by_addr((uint32_t)usb_det_packet, send_len);
+
+    ret = cdc_acm_user_send(&cdc_acm, usb_det_packet, send_len);
+
+    if(0U == ret) {
+        g_usb_det_tx_pending = 0U;
+        return 1U;
+    }
+
+    return 0U;
+}
+
+/* ============================================================
+   USB laser packet
+   ============================================================ */
+
+static void usb_laser_request_distance(uint16_t dist_cm_x100)
+{
+#if (APP_LASER_ENABLE && APP_LASER_USB_REPORT_ENABLE)
+    if(dist_cm_x100 > APP_LASER_USB_DIST_CM_X100_MAX) {
+        dist_cm_x100 = APP_LASER_USB_DIST_CM_X100_MAX;
+    }
+
+    /*
+        Laser distance is streaming data.
+        If previous laser packet has not been sent yet, keep the latest value.
+    */
+    g_usb_laser_pending_dist_cm_x100 = dist_cm_x100;
+    g_usb_laser_tx_pending = 1U;
+#else
+    (void)dist_cm_x100;
+#endif
+}
+
+static uint8_t usb_laser_tx_step(void)
+{
+#if (APP_LASER_ENABLE && APP_LASER_USB_REPORT_ENABLE)
+    usb_packet_header_t *hdr;
+    uint8_t *payload;
+    uint32_t send_len;
+    uint8_t ret;
+
+    if(0U == g_usb_laser_tx_pending) {
+        return 1U;
+    }
+
+    hdr = (usb_packet_header_t *)usb_laser_packet;
+    payload = usb_laser_packet + sizeof(usb_packet_header_t);
+
+    hdr->magic = USB_PKT_MAGIC;
+    hdr->type = USB_PKT_TYPE_LASER;
+    hdr->event = 0U;
+    hdr->width = 0U;
+    hdr->height = 0U;
+    hdr->packet_id = 0U;
+    hdr->packet_total = 0U;
+    hdr->payload_len = USB_LASER_PAYLOAD_LEN;
+    hdr->reserved = 0U;
+
+    payload[0] = (uint8_t)(g_usb_laser_pending_dist_cm_x100 & 0xFFU);
+    payload[1] = (uint8_t)((g_usb_laser_pending_dist_cm_x100 >> 8U) & 0xFFU);
+
+    send_len = (uint32_t)sizeof(usb_packet_header_t) + USB_LASER_PAYLOAD_LEN;
+    app_dcache_clean_by_addr((uint32_t)usb_laser_packet, send_len);
+
+    ret = cdc_acm_user_send(&cdc_acm, usb_laser_packet, send_len);
+
+    if(0U == ret) {
+        g_usb_laser_tx_pending = 0U;
+        return 1U;
+    }
+
+    return 0U;
+#else
+    return 1U;
+#endif
+}
+
+/* ============================================================
+   Fake image
+   ============================================================ */
+
+static void fill_fake_rgb565_image(uint32_t frame_addr)
+{
+    uint16_t *p;
+    uint32_t x;
+    uint32_t y;
+    uint16_t color;
+
+    p = (uint16_t *)frame_addr;
+
+    for(y = 0U; y < USB_CAMERA_HEIGHT; y++) {
+        for(x = 0U; x < USB_CAMERA_WIDTH; x++) {
+            if(x < (USB_CAMERA_WIDTH / 3U)) {
+                color = 0xF800U;
+            } else if(x < ((USB_CAMERA_WIDTH * 2U) / 3U)) {
+                color = 0x07E0U;
+            } else {
+                color = 0x001FU;
+            }
+
+            if((x == y) || ((x + y) == (USB_CAMERA_WIDTH - 1U))) {
+                color = 0xFFFFU;
+            }
+
+            p[y * USB_CAMERA_WIDTH + x] = color;
+        }
+    }
+}
+
+/* ============================================================
+   Main
+   ============================================================ */
+
+int main(void)
+{
+    mpu_config();
+    cache_enable();
+    systick_config();
+    app_timebase_timer4_config();
+
+#if APP_LASER_ENABLE
+    app_laser_init();
+#endif
+
+    exmc_synchronous_dynamic_ram_init(EXMC_SDRAM_DEVICE0);
+    delay_1ms(1000U);
+
+    app_usb_init();
+
+#if APP_TEST_USB_FAKE_IMAGE_ONLY
+
+    fill_fake_rgb565_image(USB_CAMERA_FRAME_ADDR);
+
+    while(1) {
+#if APP_LASER_ENABLE
+        app_laser_poll();
+#endif
+
+        usb_tx_step();
+
+        if(usb_tx_is_idle()) {
+            usb_camera_tx_start(USB_CAMERA_FRAME_ADDR);
+        }
+    }
+
+#else
+
+    camera_dma_nvic_config();
+
+    if(0x00U != dci_ov5640_init()) {
+        while(1) {
+        }
+    }
+
+#if APP_ENABLE_AI_USB_RESULT
+    AI_Init();
+#endif
+
+#if APP_TEST_OV5640_FREEZE_FRAME_ONLY
+
+    while(0U == dci_ov5640_frame_service()) {
+#if APP_LASER_ENABLE
+        app_laser_poll();
+#endif
+        usb_tx_step();
+    }
+
+    camera_capture_stop();
+
+    while(1) {
+#if APP_LASER_ENABLE
+        app_laser_poll();
+#endif
+
+        usb_tx_step();
+
+        if(usb_tx_is_idle()) {
+            usb_camera_tx_start(USB_CAMERA_FRAME_ADDR);
+        }
+    }
+
+#else
+
+    while(1) {
+#if APP_LASER_ENABLE
+        app_laser_poll();
+#endif
+
+        /*
+            Always let pending DET/LASER/IMAGE packets move first.
+        */
+        usb_tx_step();
+
+        /*
+            When CDC sender is idle, check whether a new camera frame is ready.
+            If ready:
+                1. Run AI at configured interval.
+                2. Request AI result packet type=0x02,event=0x00.
+                3. Start image packet sequence type=0x01,event=0x01.
+        */
+        if(usb_tx_is_idle()) {
+            if(0U != dci_ov5640_frame_service()) {
+#if APP_ENABLE_AI_USB_RESULT
+                if(0U == g_ai_frame_divider) {
+                    AI_Run();
+                    usb_det_request_ai_result();
+                }
+
+                g_ai_frame_divider++;
+
+                if(g_ai_frame_divider >= APP_AI_RUN_INTERVAL) {
+                    g_ai_frame_divider = 0U;
+                }
+#endif
+                usb_camera_tx_start(USB_CAMERA_FRAME_ADDR);
+            }
+        }
+    }
+
+#endif
+#endif
+}
+
+/* ============================================================
+   Cache / MPU
+   ============================================================ */
+
+static void cache_enable(void)
+{
+    SCB_EnableICache();
+    SCB_EnableDCache();
+    __DSB();
+    __ISB();
+}
+
+static void mpu_config(void)
+{
+    mpu_region_init_struct mpu_init_struct;
+
+    mpu_region_struct_para_init(&mpu_init_struct);
+    ARM_MPU_Disable();
+    ARM_MPU_SetRegion(0U, 0U);
+
+    mpu_init_struct.region_base_address  = 0xC0000000U;
+    mpu_init_struct.region_size          = MPU_REGION_SIZE_32MB;
+    mpu_init_struct.access_permission    = MPU_AP_FULL_ACCESS;
+    mpu_init_struct.access_bufferable    = MPU_ACCESS_BUFFERABLE;
+    mpu_init_struct.access_cacheable     = MPU_ACCESS_CACHEABLE;
+    mpu_init_struct.access_shareable     = MPU_ACCESS_NON_SHAREABLE;
+    mpu_init_struct.region_number        = MPU_REGION_NUMBER1;
+    mpu_init_struct.subregion_disable    = 0x00U;
+    mpu_init_struct.instruction_exec     = MPU_INSTRUCTION_EXEC_NOT_PERMIT;
+    mpu_init_struct.tex_type             = MPU_TEX_TYPE0;
+
+    mpu_region_config(&mpu_init_struct);
+    mpu_region_enable();
+    ARM_MPU_Enable(MPU_MODE_PRIV_DEFAULT);
+
+    __DSB();
+    __ISB();
+}
+
+/* ============================================================
+   USB init
+   ============================================================ */
+
+static void app_usb_init(void)
+{
+    usb_rcu_config();
+    usb_timer_init();
+
+#ifdef USE_USBHS0
+#ifdef USE_USB_FS
+    usb_para_init(&cdc_acm, USBHS0, USB_SPEED_FULL);
+#endif
+#ifdef USE_USB_HS
+    usb_para_init(&cdc_acm, USBHS0, USB_SPEED_HIGH);
+#endif
+#endif
+
+#ifdef USE_USBHS1
+#ifdef USE_USB_FS
+    usb_para_init(&cdc_acm, USBHS1, USB_SPEED_FULL);
+#endif
+#ifdef USE_USB_HS
+    usb_para_init(&cdc_acm, USBHS1, USB_SPEED_HIGH);
+#endif
+#endif
+
+    usbd_init(&cdc_acm, &cdc_desc, &cdc_class);
+
+#ifdef USE_USB_HS
+#ifndef USE_ULPI_PHY
+#ifdef USE_USBHS0
+    pllusb_rcu_config(USBHS0);
+#elif defined USE_USBHS1
+    pllusb_rcu_config(USBHS1);
+#endif
+#endif
+#endif
+
+    usb_intr_config();
+}
+
+/* ============================================================
+   OV5640 DMA NVIC
+   ============================================================ */
+
+static void camera_dma_nvic_config(void)
+{
+    nvic_irq_enable(DMA1_Channel7_IRQn, 2U, 0U);
+}

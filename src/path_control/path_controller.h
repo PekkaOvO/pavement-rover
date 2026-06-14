@@ -91,6 +91,8 @@ struct PathControlConfig {
     GnssOnlyParams gnss_only;
     GeoPoint goal;
     bool has_goal = false;
+    std::vector<GeoPoint> goals;
+    bool has_goals = false;
 };
 
 struct RobotState {
@@ -121,7 +123,7 @@ bool loadPathControlConfig(const std::string &yaml_path, PathControlConfig &conf
 
 class PathController {
 public:
-    PathController(const GeoPoint &goal, const ControlParams &params);
+    PathController(const std::vector<GeoPoint> &goals, const ControlParams &params);
 
     bool update(const NavOutput &nav, RobotState &state, ControlOutput &output, std::string &error);
     bool updateFromPose(const GeoPoint &position,
@@ -135,22 +137,25 @@ public:
     GeoPoint origin() const;
     Point2d goalLocal() const;
     int pathSize() const;
+    int goalsCount() const;
+    int currentGoalIndex() const;
 
 private:
     bool initializePath(const GeoPoint &origin, std::string &error);
 
 private:
     GeoPoint origin_;
-    GeoPoint goal_;
+    std::vector<GeoPoint> goals_;
     Point2d goal_local_;
     ControlParams params_;
     std::vector<Point2d> path_;
     bool ready_ = false;
+    int current_goal_index_ = 0;
 };
 
 class GnssPathController {
 public:
-    GnssPathController(const GeoPoint &goal,
+    GnssPathController(const std::vector<GeoPoint> &goals,
                        const ControlParams &control_params,
                        const GnssOnlyParams &gnss_params);
 
@@ -163,7 +168,7 @@ public:
 
 private:
     PathController controller_;
-    GeoPoint goal_;
+    std::vector<GeoPoint> goals_;
     GnssOnlyParams params_;
     bool has_previous_fix_ = false;
     bool has_yaw_ = false;

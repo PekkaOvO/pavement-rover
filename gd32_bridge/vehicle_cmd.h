@@ -16,9 +16,10 @@ constexpr char VEHICLE_CMD_SOCK_PATH[] = "/tmp/gd32_vehicle_cmd.sock";
 // Command types
 enum VehicleCmdType : uint8_t {
     CMD_NONE   = 0,
-    CMD_STOP   = 1,  // GD32 detected crack → stop vehicle immediately
+    CMD_STOP   = 1,  // GD32 detected target → stop vehicle for centering
     CMD_ADJUST = 2,  // GD32 gimbal centered → angle available
     CMD_RESUME = 3,  // Laser/crack processing done → resume patrol
+    CMD_CRACK_STOP = 4, // Laser detected crack → stop for photo (second stop)
 };
 
 // Message structure (Unix DGRAM, 9 bytes total)

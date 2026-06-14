@@ -11,6 +11,7 @@ enum class VehicleCmdType : uint8_t {
     STOP   = 1,
     ADJUST = 2,
     RESUME = 3,
+    CRACK_STOP = 4,
 };
 
 // Message structure (must match gd32_bridge::VehicleCmdMessage)

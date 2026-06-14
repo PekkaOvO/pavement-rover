@@ -91,4 +91,15 @@ void VehicleCmdPublisher::publishResume() {
     std::cerr << "vehicle_cmd: CMD_RESUME" << std::endl;
 }
 
+void VehicleCmdPublisher::publishCrackStop() {
+    VehicleCmdMessage msg;
+    msg.cmd = CMD_CRACK_STOP;
+    msg.angle_delta_deg = 0.0f;
+    msg.timestamp_ms = static_cast<uint32_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+    publish(msg);
+    std::cerr << "vehicle_cmd: CMD_CRACK_STOP" << std::endl;
+}
+
 } // namespace gd32_bridge

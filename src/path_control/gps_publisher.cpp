@@ -60,7 +60,7 @@ bool GpsPublisher::publish(const path_control::GnssPosition &fix,
                             double timestamp) {
     // Try to (re)connect if not connected
     if (fd_ < 0) {
-        open(socket_path_);
+        open();  // uses default /tmp/gd32_gps.sock
         if (fd_ < 0)
             return false;
     }

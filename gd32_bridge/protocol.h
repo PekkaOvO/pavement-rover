@@ -28,6 +28,7 @@ static_assert(sizeof(UsbPacketHeader) == 16, "UsbPacketHeader size unexpected");
 // USB packet types
 constexpr uint8_t USB_PKT_TYPE_IMAGE = 0x01;
 constexpr uint8_t USB_PKT_TYPE_DET   = 0x02;
+constexpr uint8_t USB_PKT_TYPE_LASER = 0x03; // laser distance: payload = uint16 cm*100 (LE)
 
 // Image event / format
 constexpr uint8_t USB_IMG_EVENT_RGB565 = 0x01;
@@ -36,7 +37,8 @@ constexpr uint8_t USB_IMG_EVENT_RGB565 = 0x01;
 constexpr uint8_t USB_DET_EVENT_NONE     = 0x00; // empty / no target
 constexpr uint8_t USB_DET_EVENT_STOP     = 0x01; // stop vehicle
 constexpr uint8_t USB_DET_EVENT_X_DELTA  = 0x02; // gimbal X angle delta valid
-constexpr uint8_t USB_DET_EVENT_FLOW_END = 0x03; // single crack flow end
+constexpr uint8_t USB_DET_EVENT_FLOW_END  = 0x03; // single crack flow end
+constexpr uint8_t USB_DET_EVENT_CRACK_STOP = 0x04; // laser detected crack → stop for photo
 
 // Detection / flow object payload, 28 bytes
 //   Used when: type=0x02, event=USB_DET_EVENT_X_DELTA
@@ -64,6 +66,7 @@ static_assert(sizeof(UsbDetObject) == 28, "UsbDetObject size unexpected");
 constexpr uint8_t QUEUE_FRAME_RGB565      = 0x01; // raw RGB565 image
 constexpr uint8_t QUEUE_FRAME_RGB565_DET = 0x03; // RGB565 + embedded UsbDetObject(28B)
 constexpr uint8_t QUEUE_FRAME_RGB565_ANOM = 0x04; // anomaly RGB565 + det object
+constexpr uint8_t QUEUE_FRAME_LASER       = 0x05; // laser distance measurement
 
 // ============================================================================
 // TCP protocol — i.MX6ULL → CarView2 (unchanged, kept compatible)
@@ -82,6 +85,7 @@ struct TcpProtocol {
     static constexpr uint8_t  TYPE_NO_IMAGE       = 0x02;
     static constexpr uint8_t  TYPE_RGB565         = 0x03;
     static constexpr uint8_t  TYPE_RGB565_ANOMALY = 0x04;
+    static constexpr uint8_t  TYPE_LASER          = 0x05; // laser distance only
 
     static constexpr size_t HEADER_SIZE = 52;
     static constexpr size_t CRC_SIZE    =  2;

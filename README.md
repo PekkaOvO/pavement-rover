@@ -1003,3 +1003,53 @@ CarView2 显示:                             程序输出:
 | ObstacleAvoidDemo 启动报错 | 先用 `--dry-run` 试运行；检查 `/dev/tb6612` 是否存在 |
 | gd32_bridge 打不开 /dev/ttyACM0 | 确认 GD32 USB 已连接；检查 `ls /dev/ttyA*` |
 | WSL IP 变化 | `ip addr show eth0` 查看新 IP，更新 portproxy：`netsh interface portproxy set v4tov4 ...` |
+
+# 2026_6_8
+## 上位机端口
+界面：./CarView2
+遥控：sudo ./rc_controller --host 172.20.10.12
+
+## 拷贝到开发板SCP 命令（从项目根目录执行）：
+
+1. gd32_bridge 修复版
+scp bin/gd32_bridge root@172.20.10.12:/home/root/gd32_bridge
+
+2. rc_receiver 遥控接收程序
+scp bin/rc_receiver root@172.20.10.12:/home/root/rc_receiver
+
+3. 启动脚本 (改配置只需改这个文件)
+scp run_rc_receiver.sh root@172.20.10.12:/home/root/
+
+## 开发板运行
+./gd32_bridge 172.20.10.3 8766
+./rc_receiver --port 9876 --dev /dev/tb6612 --turn-ratio 0.0 --left-scale 1.0 --right-scale 0.48
+
+第 1 步：Windows (PowerShell 管理员)
+
+netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=8766 connectaddress=172.31.41.250 connectport=8766
+New-NetFirewallRule -DisplayName "CarView2-8766" -Direction Inbound -Protocol TCP -LocalPort 8766 -Action Allow
+这条规则让 Windows 收到发往 172.20.10.3:8766 的数据时，转发到 WSL 的 8766 端口。
+
+第 2 步：WSL（当前窗口）
+
+# 启动 CarView2 界面（监听 8766，接收 GPS/图像/激光数据）
+./build/CarView2
+第 3 步：开发板 (SSH root@172.20.10.12)
+
+# 终端 1: 遥控接收
+cd /home/root
+./rc_receiver --port 9876 --dev /dev/tb6612 --turn-ratio 0.0 --left-scale 1.0 --right-scale 0.48 --timeout 999999 --max-pct 40
+
+# 终端 3: GD32 桥接（发数据到 Windows IP，Windows 转发到 WSL）
+./gd32_bridge 172.20.10.3 8766
+
+# 终端 2: GNSS 路径控制（发布 GPS 到 socket，gd32_bridge 读取后再转发给 CarView2）
+./KF-GINS-GnssPathControl 
+
+./kf-gins.yaml
+
+stty -F /dev/ttyUSB0 115200 raw -echo && cat /dev/ttyUSB0 | ./KF-GINS-GnssPathControl ./kf-gins.yaml --dry-run
+第 4 步：Windows (PowerShell 或 CMD)
+
+# 遥控（在 CarView2 项目目录下）
+sudo ./bin/rc_controller --host 172.20.10.12
